@@ -1,20 +1,22 @@
-/// davianspace_http_resilience
+/// # davianspace_http_resilience
 ///
-/// A production-ready Dart/Flutter HTTP resilience library inspired by
-/// **Microsoft.Extensions.Http** and **Microsoft.Extensions.Http.Resilience**.
+/// A production-grade Dart / Flutter HTTP resilience library inspired by
+/// [Microsoft.Extensions.Http.Resilience](https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience)
+/// and [Polly](https://github.com/App-vNext/Polly).
 ///
-/// Provides a fully composable middleware pipeline with Polly-style resilience
-/// policies — all built on clean-architecture and SOLID principles, with no
-/// reflection and full null-safety.
+/// Built for **enterprise workloads**: composable middleware pipelines, seven
+/// resilience policies, structured observability, configuration-driven setup,
+/// deterministic resource lifecycle, and header-redacted security logging —
+/// all with zero reflection and strict null-safety.
 ///
-/// ## Quick start
+/// ## Quick Start
 ///
 /// ```dart
 /// import 'package:davianspace_http_resilience/davianspace_http_resilience.dart';
 ///
 /// void main() async {
 ///   final client = HttpClientFactory.create('demo')
-///       .withBaseUri(Uri.parse('https://jsonplaceholder.typicode.com'))
+///       .withBaseUri(Uri.parse('https://api.example.com'))
 ///       .withDefaultHeader('Accept', 'application/json')
 ///       .withLogging()
 ///       .withRetry(RetryPolicy.exponential(maxRetries: 3, useJitter: true))
@@ -22,90 +24,135 @@
 ///       .withTimeout(TimeoutPolicy(timeout: Duration(seconds: 10)))
 ///       .build();
 ///
-///   final response = await client.get(Uri.parse('/todos/1'));
-///   print(response.ensureSuccess().bodyAsString);
+///   try {
+///     final response = await client.get(Uri.parse('/todos/1'));
+///     print(response.ensureSuccess().bodyAsString);
+///   } finally {
+///     client.dispose();
+///   }
 /// }
 /// ```
 ///
-/// ## Architecture overview
+/// ## Architecture
 ///
 /// ```
 /// Application code
 ///       │
-///       ▼
-/// ResilientHttpClient        — ergonomic verb methods (get / post / …)
+///       ├── ResilienceConfigLoader  ← bind policies from JSON at runtime
 ///       │
 ///       ▼
-/// HttpHandler pipeline       — ordered chain of DelegatingHandler instances
-///   ┌─────────────────────┐
-///   │ LoggingHandler      │  1. outermost — logs full round-trip
-///   │ RetryHandler        │  2. retries transient failures
-///   │ CircuitBreakerHandler│ 3. rejects when threshold exceeded
-///   │ TimeoutHandler      │  4. deadline per attempt
-///   │ BulkheadHandler     │  5. limits concurrency
-///   │ TerminalHandler     │  6. real HTTP I/O (package:http)
-///   └─────────────────────┘
+/// ResilientHttpClient              ← get / post / put / patch / delete / head / options
+///       │
+///       ▼
+/// HttpHandler pipeline             ← ordered chain of DelegatingHandler instances
+///   ┌───────────────────────────┐
+///   │ LoggingHandler            │  1. outermost — logs round-trip, redacts headers
+///   │ RetryHandler              │  2. retries transient failures
+///   │ CircuitBreakerHandler     │  3. fast-fail when threshold exceeded
+///   │ TimeoutHandler            │  4. per-attempt deadline
+///   │ BulkheadHandler           │  5. limits concurrency
+///   │ HedgingHandler            │  6. speculative execution (tail latency)
+///   │ FallbackHandler           │  7. cached / synthetic fallback on failure
+///   │ TerminalHandler           │  8. innermost — real HTTP I/O (package:http)
+///   └───────────────────────────┘
 /// ```
 ///
-/// ## Key types
+/// ## Key Types
 ///
-/// | Type                    | Role |
-/// |-------------------------|------|
-/// | [`HttpRequest`]           | Immutable outgoing request model |
-/// | [`HttpResponse`]          | Immutable response model |
+/// ### Core
+///
+/// | Type                      | Role |
+/// |---------------------------|------|
+/// | [`HttpRequest`]           | Immutable outgoing request model with metadata bag |
+/// | [`HttpResponse`]          | Immutable response model with streaming support |
 /// | [`HttpContext`]           | Mutable per-request execution context |
-/// | [`HttpHandler`]           | Abstract pipeline unit |
+/// | [`CancellationToken`]     | Cooperative cancellation with memoised future |
+///
+/// ### Pipeline
+///
+/// | Type                      | Role |
+/// |---------------------------|------|
+/// | [`HttpHandler`]           | Abstract pipeline handler |
 /// | [`DelegatingHandler`]     | Middleware base with inner-handler chaining |
+///
+/// ### Policy Configuration (Handler-Level)
+///
+/// | Type                      | Role |
+/// |---------------------------|------|
 /// | [`RetryPolicy`]           | Constant / linear / exponential back-off |
 /// | [`CircuitBreakerPolicy`]  | Failure-threshold circuit control |
 /// | [`TimeoutPolicy`]         | Per-attempt timeout |
 /// | [`BulkheadPolicy`]        | Max-concurrency + queue isolation |
-/// | [`HttpClientFactory`]     | Instance-based named + typed client factory |
-/// | [`HttpClientBuilder`]     | Fluent pipeline builder for [`ResilientHttpClient`] |
+/// | [`BulkheadIsolationPolicy`] | Semaphore-based isolation with rejection callbacks |
+/// | [`HedgingPolicy`]         | Speculative execution for idempotent operations |
+/// | [`FallbackPolicy`]        | Fallback action on status code / exception |
+///
+/// ### Resilience Engine (Transport-Agnostic)
+///
+/// | Type                      | Role |
+/// |---------------------------|------|
+/// | [`ResiliencePolicy`]      | Abstract composable policy base with `dispose()` |
 /// | [`PolicyHandler`]         | Bridge: applies [`ResiliencePolicy`] inside a pipeline |
-/// | [`ResilientHttpClient`]   | High-level HTTP client with verb helpers |
-/// | [`ResiliencePolicy`]      | Abstract composable policy base |
-/// | [`RetryResiliencePolicy`] | Free-standing retry with back-off |
 /// | [`Policy`]                | Static factory for all resilience policies |
 /// | [`PolicyWrap`]            | Ordered multi-policy pipeline with introspection |
 /// | [`ResiliencePipelineBuilder`] | Fluent builder for composing policies |
 /// | [`PolicyRegistry`]        | Named policy store with typed resolution |
-/// | [`OutcomeClassifier`]     | Classifies HTTP outcomes as success / transient / permanent |
-/// | [`HttpOutcomeClassifier`] | Default HTTP outcome classifier (2xx/4xx/5xx) |
-/// | [`OutcomeClassification`] | Enum: success, transientFailure, permanentFailure |
-/// | [`FallbackPolicy`]        | Fallback configuration for the handler pipeline |
-/// | [`FallbackResiliencePolicy`] | Free-standing fallback policy for `Policy.execute` |
-/// | [`FallbackHandler`]       | Handler that executes a fallback on pipeline failure |
-/// | [`BulkheadIsolationPolicy`] | Efficient bulkhead config (HTTP-oriented names) |
-/// | [`BulkheadIsolationResiliencePolicy`] | Free-standing isolation policy with zero-polling semaphore |
-/// | [`BulkheadIsolationHandler`] | Handler that enforces isolation via `BulkheadIsolationSemaphore` |
-/// | [`BulkheadIsolationSemaphore`] | Completer-based async semaphore for concurrency control |
-/// | [`BulkheadRejectionReason`] | Enum: queueFull \| queueTimeout |
-/// | [`FluentHttpClientBuilder`] | Immutable fluent DSL for building clients with resilience policies |
-/// | [`HttpClientFactoryFluentExtension`] | Extension adding `forClient()` to [`HttpClientFactory`] |
-/// | [`ResilienceConfig`]        | Immutable top-level config model parsed from JSON |
-/// | [`RetryConfig`]             | Config section for a retry policy |
-/// | [`TimeoutConfig`]           | Config section for a timeout policy |
-/// | [`Subscription`]            | Opaque handle returned by `addStateChangeListener`; call `cancel()` to deregister |
-/// | [`CircuitBreakerConfig`]    | Config section for a circuit-breaker policy |
-/// | [`BulkheadConfig`]          | Config section for a bulkhead policy |
-/// | [`BulkheadIsolationConfig`] | Config section for a bulkhead-isolation policy |
-/// | [`BackoffConfig`]           | Config section describing a back-off strategy |
-/// | [`BackoffType`]             | Enum of supported back-off algorithms |
-/// | [`ResilienceConfigLoader`]  | Parses JSON → [`ResilienceConfig`] |
-/// | [`ResilienceConfigSource`]  | Abstraction for static/dynamic config sources |
-/// | [`JsonStringConfigSource`]  | Static config source backed by a JSON string |
-/// | [`InMemoryConfigSource`]    | Dynamic config source with live-update support |
-/// | [`ResilienceConfigBinder`]  | Binds [`ResilienceConfig`] → [`ResiliencePolicy`] instances |
-/// | [`PolicyRegistryConfigExtension`] | Extension: load config directly into [`PolicyRegistry`] |
-/// | [`ResilienceEventHub`]      | Centralized event bus; dispatches via scheduleMicrotask |
-/// | [`ResilienceEvent`]         | Sealed base class for all resilience lifecycle events |
+///
+/// ### Client Factory
+///
+/// | Type                      | Role |
+/// |---------------------------|------|
+/// | [`HttpClientFactory`]     | Named + typed client factory with lifecycle management |
+/// | [`HttpClientBuilder`]     | Fluent pipeline builder for [`ResilientHttpClient`] |
+/// | [`ResilientHttpClient`]   | High-level HTTP client with verb helpers |
+/// | [`FluentHttpClientBuilder`] | Immutable fluent DSL for step-by-step construction |
+///
+/// ### Configuration
+///
+/// | Type                      | Role |
+/// |---------------------------|------|
+/// | [`ResilienceConfig`]      | Immutable config model (7 policy sections) |
+/// | [`ResilienceConfigLoader`]| Parses JSON → [`ResilienceConfig`] |
+/// | [`ResilienceConfigBinder`]| Binds config → policy instances |
+/// | [`JsonStringConfigSource`]| Static config source backed by a JSON string |
+/// | [`InMemoryConfigSource`]  | Dynamic config source with live-update support |
+///
+/// ### Observability
+///
+/// | Type                        | Role |
+/// |-----------------------------|------|
+/// | [`ResilienceEventHub`]      | Centralized event bus for policy lifecycle events |
+/// | [`ResilienceEvent`]         | Sealed base class for all resilience events |
 /// | [`RetryEvent`]              | Emitted on each retry attempt |
 /// | [`CircuitOpenEvent`]        | Emitted when circuit breaker opens |
 /// | [`CircuitCloseEvent`]       | Emitted when circuit breaker closes |
 /// | [`TimeoutEvent`]            | Emitted when a timeout occurs |
 /// | [`FallbackEvent`]           | Emitted when a fallback triggers |
 /// | [`BulkheadRejectedEvent`]   | Emitted when bulkhead rejects a request |
+///
+/// ### Classification & Exceptions
+///
+/// | Type                        | Role |
+/// |-----------------------------|------|
+/// | [`OutcomeClassifier`]       | Classifies HTTP outcomes as success / transient / permanent |
+/// | [`HttpOutcomeClassifier`]   | Default HTTP outcome classifier (2xx/4xx/5xx) |
+/// | [`OutcomeClassification`]   | Enum: success, transientFailure, permanentFailure |
+/// | [`HttpResilienceException`] | Base exception for all resilience failures |
+/// | [`HttpStatusException`]     | Non-2xx HTTP response (body capped at 64 KB) |
+/// | [`RetryExhaustedException`] | All retry attempts exhausted |
+/// | [`CircuitOpenException`]    | Request blocked by open circuit |
+/// | [`HttpTimeoutException`]    | Request exceeded timeout deadline |
+/// | [`BulkheadRejectedException`] | Request rejected by concurrency limiter |
+///
+/// ## Design Principles
+///
+/// * **Null-safe Dart 3** — strict null safety, strict casts, strict inference
+/// * **Immutable models** — `HttpRequest` and `HttpResponse` are `final` value types
+/// * **No reflection** — zero use of `dart:mirrors`; tree-shaker friendly
+/// * **Async-first** — every pipeline operation is `Future`-based
+/// * **SOLID** — single responsibility per handler, open/closed via composition
+/// * **Clean Architecture** — dependency arrows point inward
+/// * **Deterministic disposal** — `dispose()` on policies, handlers, and clients
 
 // ignore: unnecessary_library_name
 library davianspace_http_resilience;

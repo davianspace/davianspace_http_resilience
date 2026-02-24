@@ -35,6 +35,13 @@ import 'resilience_config.dart';
 ///       "MaxConcurrentRequests": 10,
 ///       "MaxQueueSize": 100,
 ///       "QueueTimeoutSeconds": 10
+///     },
+///     "Hedging": {
+///       "HedgeAfterMs": 300,
+///       "MaxHedgedAttempts": 2
+///     },
+///     "Fallback": {
+///       "StatusCodes": [500, 502, 503, 504]
 ///     }
 ///   }
 /// }
@@ -117,6 +124,8 @@ final class ResilienceConfigLoader {
       circuitBreaker: _parseCircuitBreaker(map),
       bulkhead: _parseBulkhead(map),
       bulkheadIsolation: _parseBulkheadIsolation(map),
+      hedging: _parseHedging(map),
+      fallback: _parseFallback(map),
     );
   }
 
@@ -184,6 +193,46 @@ final class ResilienceConfigLoader {
       maxQueueSize: _int(raw, 'MaxQueueSize', 100),
       queueTimeoutSeconds: _int(raw, 'QueueTimeoutSeconds', 10),
     );
+  }
+
+  HedgingConfig? _parseHedging(Map<String, dynamic> map) {
+    final dynamic raw = map['Hedging'];
+    if (raw == null) return null;
+    if (raw is! Map<String, dynamic>) {
+      throw const FormatException('"Hedging" must be a JSON object.');
+    }
+    return HedgingConfig(
+      hedgeAfterMs: _int(raw, 'HedgeAfterMs', 200),
+      maxHedgedAttempts: _int(raw, 'MaxHedgedAttempts', 1),
+    );
+  }
+
+  FallbackConfig? _parseFallback(Map<String, dynamic> map) {
+    final dynamic raw = map['Fallback'];
+    if (raw == null) return null;
+    if (raw is! Map<String, dynamic>) {
+      throw const FormatException('"Fallback" must be a JSON object.');
+    }
+    final dynamic statusCodes = raw['StatusCodes'];
+    final List<int> codes;
+    if (statusCodes == null) {
+      codes = const [500, 502, 503, 504];
+    } else if (statusCodes is List) {
+      codes = statusCodes.map((dynamic e) {
+        if (e is int) return e;
+        if (e is num) return e.toInt();
+        throw FormatException(
+          '"StatusCodes" elements must be integers, '
+          'got ${e.runtimeType}.',
+        );
+      }).toList();
+    } else {
+      throw FormatException(
+        '"StatusCodes" must be a JSON array, '
+        'got ${statusCodes.runtimeType}.',
+      );
+    }
+    return FallbackConfig(statusCodes: codes);
   }
 
   BackoffConfig? _parseBackoff(dynamic raw) {

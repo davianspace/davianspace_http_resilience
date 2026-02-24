@@ -15,6 +15,31 @@ import 'http_method.dart';
 /// ```
 @immutable
 final class HttpRequest {
+  /// Well-known metadata key to override the client-level streaming mode
+  /// on a per-request basis.
+  ///
+  /// Set to `true` to stream the response body (returns as soon as headers
+  /// arrive), or `false` to buffer it fully, regardless of the
+  /// `streamingMode` configured on the pipeline's terminal handler.
+  ///
+  /// When this key is absent from the request metadata the pipeline falls
+  /// back to the handler-level `streamingMode` setting.
+  ///
+  /// ```dart
+  /// // Stream only this request:
+  /// final response = await client.get(
+  ///   Uri.parse('/large-file'),
+  ///   metadata: {HttpRequest.streamingKey: true},
+  /// );
+  ///
+  /// // Force-buffer even when the pipeline default is streaming:
+  /// final response = await client.get(
+  ///   Uri.parse('/small-resource'),
+  ///   metadata: {HttpRequest.streamingKey: false},
+  /// );
+  /// ```
+  static const String streamingKey = 'resilience.streaming';
+
   /// Creates an immutable [HttpRequest].
   ///
   /// [method]  — required HTTP verb.

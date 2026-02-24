@@ -40,6 +40,14 @@ typedef CircuitBreakerResultCondition = bool Function(
 /// ### Shared state via registry
 /// All [CircuitBreakerResiliencePolicy] instances that share the same
 /// [circuitName] and [`registry`] observe the same circuit state.
+///
+/// ### Lifecycle
+///
+/// Each policy registers state-change listeners on the shared
+/// [CircuitBreakerState].  Call [dispose] when discarding a policy instance
+/// to remove those listeners and prevent accumulation on long-lived state
+/// objects.  Failing to call [dispose] will not cause errors, but listeners
+/// will remain referenced for the lifetime of the registry entry.
 final class CircuitBreakerResiliencePolicy extends ResiliencePolicy {
   /// Creates a [CircuitBreakerResiliencePolicy].
   ///
@@ -186,6 +194,7 @@ final class CircuitBreakerResiliencePolicy extends ResiliencePolicy {
   ///
   /// Call this before discarding a policy instance to prevent listener
   /// accumulation on the shared [CircuitBreakerState].
+  @override
   void dispose() {
     for (final sub in _subscriptions) {
       sub.cancel();

@@ -1,6 +1,94 @@
-## 1.0.0
+# Changelog
 
-First stable release. All APIs are now covered by semantic-versioning
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [1.0.1] — 2026-02-24
+
+### Added
+
+**Resilience hardening**
+* `ResiliencePolicy.dispose()` — virtual lifecycle method on the base class;
+  enables deterministic cleanup of circuit-breaker timers, semaphore slots,
+  and other stateful resources.
+* `PolicyWrap.dispose()` — recursively disposes all child policies in a
+  composed pipeline.
+* `HttpClientBuilder.build()` — the `onDispose` callback now automatically
+  disposes `PolicyHandler` policies when the client is disposed.
+* `CircuitBreakerRegistry` health-check API — `isHealthy`, `snapshot`,
+  `contains`, `[]` operator, and `circuitNames` for production monitoring.
+* `RetryResiliencePolicy.onRetry` callback — fires on each retry attempt
+  with the attempt number and exception for external telemetry integration.
+* `RetryCallback` typedef — `void Function(int attempt, Object? exception)`.
+
+**Configuration-driven hedging & fallback**
+* `HedgingConfig` — typed config model for speculative request hedging
+  (`hedgeAfterMs`, `maxHedgedAttempts`), parsed from JSON.
+* `FallbackConfig` — typed config model for fallback trigger status codes,
+  parsed from JSON.
+* `ResilienceConfigLoader` — new `_parseHedging()` and `_parseFallback()`
+  section parsers; full JSON support for all seven policy sections.
+* `ResilienceConfigBinder.buildHedging()` — binds `HedgingConfig` →
+  `HedgingPolicy`.
+* `ResilienceConfigBinder.buildFallbackPolicy()` — binds `FallbackConfig` →
+  `FallbackPolicy` with status-code-based predicate; the fallback action is
+  always supplied programmatically.
+
+**Per-request streaming**
+* `HttpRequest.streamingKey` — well-known metadata constant
+  (`'resilience.streaming'`) enabling per-request override of the pipeline's
+  default streaming mode.
+* `TerminalHandler.send()` — checks `context.request.metadata` for
+  `HttpRequest.streamingKey` before falling back to the handler-level
+  `streamingMode` default.
+
+**Observability & security**
+* `LoggingHandler` header redaction — new `redactedHeaders` and `logHeaders`
+  constructor parameters; default redacted set includes `authorization`,
+  `proxy-authorization`, `cookie`, `set-cookie`, and `x-api-key`.
+
+### Changed
+
+* `CircuitBreakerState` now uses `Stopwatch` for break-duration measurement,
+  eliminating clock-skew sensitivity. `_openedAt` and `_lastTransitionAt`
+  use `DateTime.now().toUtc()` for consistent serialisation.
+* `BulkheadResiliencePolicy._AsyncSemaphore` — internal rewrite with
+  `_SemaphoreEntry` wrapper and cancellation flag to prevent slot leakage
+  under high-contention / timeout scenarios.
+* `BulkheadPolicy._queue` — changed from `List<_QueueEntry>` to
+  `Queue<_QueueEntry>` for O(1) dequeue operations.
+* `CancellationToken.onCancelled` — the `Future<void>` is now memoised;
+  repeated accesses return the same instance.
+* `Backoff` strategies — shared `_defaultRandom` instance replaces per-call
+  `math.Random()` allocations across all backoff implementations.
+* `HttpStatusException.body` — capped at 64 KB; bodies exceeding the limit
+  are truncated with a `… [truncated N bytes]` suffix to prevent
+  unbounded memory consumption in diagnostic logging.
+* `HttpResponse` class documentation — clarified as "effectively immutable"
+  with a note about internal `_streamConsumed` tracking state.
+* `HttpContext.startedAt` — documentation clarifies local-time-zone
+  semantics and recommends `elapsed` for monotonic measurement.
+* `CircuitBreakerResiliencePolicy` — enhanced class-level documentation
+  covering lifecycle and `dispose()` contract.
+
+### Fixed
+
+* `BulkheadResiliencePolicy` — fixed semaphore slot leak when queued
+  requests were cancelled or timed out before acquiring a permit.
+* `RetryResiliencePolicy` — fixed `TypeError` when `retryForever: true`
+  caused `totalAttempts` to be `null`; now defaults to `-1`.
+* `RetryResiliencePolicy` — removed invalid `[attempt]` / `[exception]`
+  doc-comment references that triggered `comment_references` lint info.
+
+---
+
+## [1.0.0] — 2026-01-15
+
+First stable release. All public APIs are covered by semantic-versioning
 guarantees.
 
 ### Added
@@ -19,8 +107,8 @@ guarantees.
 * `FallbackResiliencePolicy` — response/exception predicate + async fallback
   action.
 * `PolicyWrap` — combines an ordered list of `ResiliencePolicy` instances.
-* `ResiliencePipelineBuilder` fluent DSL to construct `PolicyWrap` chains.
-* `Policy` static factory class: `Policy.retry`, `Policy.circuitBreaker`,
+* `ResiliencePipelineBuilder` — fluent DSL to construct `PolicyWrap` chains.
+* `Policy` — static factory class: `Policy.retry`, `Policy.circuitBreaker`,
   `Policy.timeout`, `Policy.bulkhead`, `Policy.bulkheadIsolation`,
   `Policy.fallback`, `Policy.wrap`.
 * `PolicyRegistry` — named-policy store for sharing instances across the app.
@@ -31,16 +119,28 @@ guarantees.
 * `OutcomeClassifier` — pluggable result/exception → `PolicyOutcome` mapping.
 
 **Observability (`ResilienceEventHub`)**
-* `ResilienceEventHub` broadcast stream for policy lifecycle events.
+* `ResilienceEventHub` — broadcast stream for policy lifecycle events.
 * Event types: `RetryAttemptEvent`, `CircuitStateChangedEvent`,
   `BulkheadRejectedEvent`, `TimeoutEvent`, `FallbackActivatedEvent`.
 * `withEventHub()` extension on all resilience policies and handlers.
 
+**Hedging handler**
+* `HedgingPolicy` — configurable speculative request hedging for
+  idempotent operations to reduce tail latency.
+* `HedgingHandler` — pipeline handler that launches concurrent hedge
+  requests after a configurable delay.
+
+**Fallback handler**
+* `FallbackPolicy` — configurable fallback action for the handler
+  pipeline, triggered by exception or status-code predicates.
+* `FallbackHandler` — pipeline handler that executes a fallback on
+  downstream failure.
+
 **Fluent builder DSL (`FluentHttpClientBuilder`)**
 * `HttpClientFactoryFluentExtension` adds `.withResiliencePipeline()` and
   `.using()` to `HttpClientBuilder`.
-* `FluentHttpClientBuilder` immutable step-builder returning a new instance
-  per decoration.
+* `FluentHttpClientBuilder` — immutable step-builder returning a new
+  instance per decoration.
 
 **JSON configuration layer**
 * `ResilienceConfig` — typed configuration model for all policy parameters.
@@ -51,12 +151,16 @@ guarantees.
 * `ResilienceConfigBinder` — binds a loaded config to `ResiliencePolicy`
   instances using `PolicyRegistry`.
 * `PolicyRegistryConfigExtension` — extension on `PolicyRegistry` for
-  one-line binding: `registry.bindFromConfig(config)`.
+  one-line binding: `registry.loadFromConfig(config)`.
 
 **Bulkhead isolation handler**
 * `BulkheadIsolationHandler` — handler-layer counterpart to
   `BulkheadIsolationResiliencePolicy`.
 * Exposes live `activeCount`, `queuedCount`, and `semaphore` metrics.
+
+**Streaming support**
+* `TerminalHandler` supports `streamingMode` for unbuffered response
+  bodies via `HttpResponse.bodyStream`.
 
 ### Changed
 
@@ -74,23 +178,3 @@ guarantees.
   retry and pipeline code.
 * `BulkheadRejectedException` carries both `maxConcurrency` and
   `maxQueueDepth` fields for accurate diagnostic messages.
-
----
-
-## 0.1.0
-
-* Initial release.
-* Composable `HttpHandler` pipeline with `DelegatingHandler` chaining.
-* `RetryHandler` with constant, linear, and exponential (jitter) back-off.
-* `CircuitBreakerHandler` with Closed / Open / Half-Open state machine and
-  application-scoped `CircuitBreakerRegistry`.
-* `TimeoutHandler` with per-attempt or total-operation deadline.
-* `BulkheadHandler` with configurable concurrency cap and queue depth.
-* `LoggingHandler` via `package:logging`.
-* `ResilientHttpClient` with `get`, `post`, `put`, `patch`, `delete` verbs.
-* `HttpClientFactory` named-client registry.
-* `CancellationToken` cooperative cancellation.
-* `RetryPredicates` DSL with `.or()` / `.and()` combinators.
-* `HttpResponseExtensions` with `ensureSuccess()`, `bodyAsString`,
-  `bodyAsJsonMap`, `bodyAsJsonList`.
-* Full `dart analyze` clean (strict mode).

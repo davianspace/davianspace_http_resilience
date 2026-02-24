@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'bulkhead_signals.dart';
 
@@ -53,11 +54,11 @@ final class BulkheadSemaphore {
   BulkheadSemaphore({required BulkheadPolicy policy})
       : _policy = policy,
         _running = 0,
-        _queue = [];
+        _queue = Queue<_QueueEntry>();
 
   final BulkheadPolicy _policy;
   int _running;
-  final List<_QueueEntry> _queue;
+  final Queue<_QueueEntry> _queue;
 
   /// The number of requests currently executing.
   int get running => _running;
@@ -98,7 +99,7 @@ final class BulkheadSemaphore {
   /// Releases a slot and wakes the next non-cancelled queued request, if any.
   void release() {
     while (_queue.isNotEmpty) {
-      final next = _queue.removeAt(0);
+      final next = _queue.removeFirst();
       if (!next.cancelled) {
         // Transfer the slot directly — active count stays the same.
         next.completer.complete();
@@ -124,4 +125,3 @@ final class _QueueEntry {
   /// a slot is not transferred to it after it has already been rejected.
   bool cancelled = false;
 }
-

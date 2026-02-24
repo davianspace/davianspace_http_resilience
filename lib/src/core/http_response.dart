@@ -1,10 +1,15 @@
 import 'dart:async';
 
-/// An immutable representation of an HTTP response returned by the pipeline.
+/// An HTTP response returned by the pipeline.
 ///
 /// [`HttpResponse`] is constructed by the terminal [`HttpHandler`] and flows
 /// back through the middleware chain unchanged unless a handler explicitly
 /// transforms it.
+///
+/// From the consumer’s perspective the response is **effectively immutable**:
+/// all public fields are `final`.  Internally a `_streamConsumed` flag tracks
+/// whether the streaming body has been read; this is an implementation detail
+/// that does not affect equality or value semantics.
 ///
 /// ### Buffered vs. streaming mode
 ///

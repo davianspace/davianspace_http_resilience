@@ -73,13 +73,18 @@ final class CancellationToken {
     if (_cancelled) throw CancellationException(reason: _reason);
   }
 
+  Future<void>? _onCancelledFuture;
+
   /// Returns a [Future] that completes when the token is cancelled.
+  ///
+  /// The future is memoised — repeated accesses return the same instance,
+  /// avoiding extra [Completer] and listener allocations.
   Future<void> get onCancelled {
     if (_cancelled) return Future.value();
-    // ignore: cancel_subscriptions
+    if (_onCancelledFuture != null) return _onCancelledFuture!;
     final completer = _AsyncCompleter<void>();
     addListener((_) => completer.complete());
-    return completer.future;
+    return _onCancelledFuture = completer.future;
   }
 
   @override

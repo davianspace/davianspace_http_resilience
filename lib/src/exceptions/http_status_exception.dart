@@ -51,14 +51,29 @@ final class HttpStatusException extends HttpResilienceException {
 
   String? _cachedBody;
 
+  /// Maximum number of bytes decoded by [body].
+  ///
+  /// Bodies larger than this are truncated to prevent unbounded memory
+  /// allocation when an error response carries an unexpectedly large payload.
+  static const int maxBodyBytes = 64 * 1024; // 64 KB
+
   /// The response body decoded as UTF-8, or `null` when no body was present.
   ///
   /// Decoded on first access; repeated calls return the cached result.
+  /// Bodies larger than [maxBodyBytes] are truncated.
   String? get body {
     if (_cachedBody != null) return _cachedBody;
     final bytes = _bodyBytes;
     if (bytes == null || bytes.isEmpty) return null;
-    return _cachedBody = utf8.decode(bytes, allowMalformed: true);
+    if (bytes.length <= maxBodyBytes) {
+      return _cachedBody = utf8.decode(bytes, allowMalformed: true);
+    }
+    final truncated = utf8.decode(
+      bytes.sublist(0, maxBodyBytes),
+      allowMalformed: true,
+    );
+    return _cachedBody =
+        '$truncated\u2026 [truncated ${bytes.length - maxBodyBytes} bytes]';
   }
 
   /// Truncates [s] to [maxLength] characters, appending '…' if truncated.

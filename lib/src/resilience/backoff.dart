@@ -1,5 +1,10 @@
 import 'dart:math' as math;
 
+/// Shared default [math.Random] used by jitter-based strategies when no
+/// custom [math.Random] is injected.  Avoids allocating a new instance on
+/// every [RetryBackoff.delayFor] call.
+final math.Random _defaultRandom = math.Random();
+
 /// Strategy that computes the delay to apply before a retry attempt.
 ///
 /// Attempt numbers are **1-based**: attempt 1 is the first retry,
@@ -125,7 +130,7 @@ final class ExponentialBackoff implements RetryBackoff {
     if (!useJitter) return Duration(milliseconds: cappedMs);
     // Full-jitter: uniformly pick from [0, cappedDelay)
     final jitterMs =
-        ((random ?? math.Random()).nextDouble() * cappedMs).round();
+        ((random ?? _defaultRandom).nextDouble() * cappedMs).round();
     return Duration(milliseconds: jitterMs);
   }
 
@@ -149,7 +154,7 @@ final class JitteredBackoff implements RetryBackoff {
   @override
   Duration delayFor(int attempt) {
     final base = _inner.delayFor(attempt);
-    final fraction = (_random ?? math.Random()).nextDouble();
+    final fraction = (_random ?? _defaultRandom).nextDouble();
     return Duration(milliseconds: (base.inMilliseconds * fraction).round());
   }
 
@@ -257,7 +262,7 @@ final class DecorrelatedJitterBackoff implements RetryBackoff {
         .clamp(0, maxDelay.inMilliseconds);
     final lowerMs = base.inMilliseconds.clamp(0, upperMs);
     if (lowerMs >= upperMs) return Duration(milliseconds: lowerMs);
-    final rng = random ?? math.Random();
+    final rng = random ?? _defaultRandom;
     return Duration(
       milliseconds: lowerMs + rng.nextInt(upperMs - lowerMs + 1),
     );
@@ -307,7 +312,7 @@ final class AddedJitterBackoff implements RetryBackoff {
     final base = _inner.delayFor(attempt);
     if (jitterRange <= Duration.zero) return base;
     final jitterMs =
-        ((random ?? math.Random()).nextDouble() * jitterRange.inMilliseconds)
+        ((random ?? _defaultRandom).nextDouble() * jitterRange.inMilliseconds)
             .round();
     return base + Duration(milliseconds: jitterMs);
   }

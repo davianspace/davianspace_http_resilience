@@ -83,9 +83,7 @@ final class BulkheadResiliencePolicy extends ResiliencePolicy {
     }
 
     // Wait for a semaphore slot, respecting the queue timeout.
-    final acquired = await _semaphore
-        .acquire()
-        .timeout(queueTimeout, onTimeout: () => false);
+    final acquired = await _semaphore.acquire(timeout: queueTimeout);
 
     if (!acquired) {
       eventHub?.emit(
@@ -120,38 +118,70 @@ final class BulkheadResiliencePolicy extends ResiliencePolicy {
 /// A counting semaphore built with [Completer]s.
 ///
 /// `acquire()` returns `true` when the slot is taken within the timeout, or
-/// `false` when the external `.timeout(…, onTimeout: () => false)` fires.
+/// `false` when the `timeout` expires while waiting in the queue.
 final class _AsyncSemaphore {
   _AsyncSemaphore(this._limit);
 
   final int _limit;
   int _active = 0;
-  final _queue = <Completer<bool>>[];
+  final _queue = <_SemaphoreEntry>[];
 
   int get activeCount => _active;
   int get queuedCount => _queue.length;
 
   /// Acquires a slot.  Returns a future that completes with `true` when the
-  /// slot is granted; the caller should wrap it with `.timeout(…)`.
-  Future<bool> acquire() {
+  /// slot is granted.
+  ///
+  /// When [timeout] is provided, the entry is automatically cancelled if the
+  /// slot is not granted within the duration, and the future completes with
+  /// `false`.  Cancelled entries are skipped by [release], preventing
+  /// permanent slot leakage.
+  Future<bool> acquire({Duration? timeout}) {
     if (_active < _limit) {
       _active++;
       return Future.value(true);
     }
-    final completer = Completer<bool>();
-    _queue.add(completer);
-    return completer.future;
+    final entry = _SemaphoreEntry();
+    _queue.add(entry);
+
+    if (timeout == null) return entry.completer.future;
+
+    return entry.completer.future.timeout(
+      timeout,
+      onTimeout: () {
+        entry.cancelled = true;
+        _queue.remove(entry);
+        return false;
+      },
+    );
   }
 
   /// Releases a previously acquired slot and unblocks the next waiter.
+  ///
+  /// Cancelled entries (timed-out waiters) are skipped so the slot is not
+  /// transferred to a waiter that has already been rejected.
   void release() {
-    if (_queue.isNotEmpty) {
+    while (_queue.isNotEmpty) {
       final next = _queue.removeAt(0);
-      // Grant the slot directly to the next waiter without decrementing
-      // (slot transferred rather than released + re-acquired).
-      if (!next.isCompleted) next.complete(true);
-    } else {
-      _active--;
+      if (!next.cancelled) {
+        // Grant the slot directly to the next waiter without decrementing
+        // (slot transferred rather than released + re-acquired).
+        if (!next.completer.isCompleted) next.completer.complete(true);
+        return;
+      }
+      // Waiter already timed out — skip it.
     }
+    _active--;
   }
+}
+
+/// Internal queue entry that pairs a [Completer] with a cancellation flag.
+final class _SemaphoreEntry {
+  final completer = Completer<bool>();
+
+  /// Set to `true` when the waiter's queue timeout has expired.
+  ///
+  /// A cancelled entry is skipped by [_AsyncSemaphore.release] so that a slot
+  /// is not transferred to a waiter that has already been rejected.
+  bool cancelled = false;
 }

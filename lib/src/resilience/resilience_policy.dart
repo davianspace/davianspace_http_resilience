@@ -80,6 +80,15 @@ abstract class ResiliencePolicy {
   /// (e.g. [`RetryExhaustedException`], [`CircuitOpenException`]).
   Future<T> execute<T>(Future<T> Function() action);
 
+  /// Releases any resources held by this policy.
+  ///
+  /// The default implementation is a no-op.  Subclasses that register external
+  /// listeners (e.g. `CircuitBreakerResiliencePolicy`) should override this to
+  /// clean them up.
+  ///
+  /// Calling [execute] after [dispose] is undefined behaviour.
+  void dispose() {}
+
   // ---------------------------------------------------------------------------
   // Composition
   // ---------------------------------------------------------------------------
@@ -203,5 +212,13 @@ final class PolicyWrap extends ResiliencePolicy {
   String toString() {
     final chain = policies.map((p) => '   $p').join('\n');
     return 'PolicyWrap(${policies.length} policies):\n$chain';
+  }
+
+  /// Disposes every policy in the chain.
+  @override
+  void dispose() {
+    for (final policy in policies) {
+      policy.dispose();
+    }
   }
 }

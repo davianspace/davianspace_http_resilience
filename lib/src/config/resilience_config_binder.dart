@@ -1,3 +1,5 @@
+import '../policies/fallback_policy.dart';
+import '../policies/hedging_policy.dart';
 import '../resilience/backoff.dart';
 import '../resilience/bulkhead_isolation_resilience_policy.dart';
 import '../resilience/bulkhead_resilience_policy.dart';
@@ -150,6 +152,55 @@ final class ResilienceConfigBinder {
         maxQueueSize: config.maxQueueSize,
         queueTimeout: config.queueTimeout,
       );
+
+  /// Builds a [HedgingPolicy] from [config].
+  ///
+  /// The returned policy can be passed to
+  /// `HttpClientBuilder.withHedging`.
+  ///
+  /// [shouldHedge] and [onHedge] must be supplied programmatically because
+  /// they cannot be expressed in JSON.
+  HedgingPolicy buildHedging(
+    HedgingConfig config, {
+    HedgePredicate? shouldHedge,
+    void Function(int attemptNumber, dynamic ctx)? onHedge,
+  }) =>
+      HedgingPolicy(
+        hedgeAfter: config.hedgeAfter,
+        maxHedgedAttempts: config.maxHedgedAttempts,
+      );
+
+  /// Builds a [FallbackPolicy] from [config].
+  ///
+  /// [fallbackAction] is **required** because the fallback response cannot be
+  /// expressed in JSON.  The config only defines *which* status codes trigger
+  /// the fallback.
+  ///
+  /// ```dart
+  /// final policy = binder.buildFallbackPolicy(
+  ///   config.fallback!,
+  ///   fallbackAction: (ctx, err, st) async =>
+  ///       HttpResponse.cached('offline data'),
+  /// );
+  /// ```
+  FallbackPolicy buildFallbackPolicy(
+    FallbackConfig config, {
+    required FallbackHttpAction fallbackAction,
+    FallbackHttpCallback? onFallback,
+  }) {
+    final codes = config.statusCodes;
+    return FallbackPolicy(
+      fallbackAction: fallbackAction,
+      shouldHandle: (response, exception, context) {
+        if (exception != null) return true;
+        if (response != null && codes.contains(response.statusCode)) {
+          return true;
+        }
+        return false;
+      },
+      onFallback: onFallback,
+    );
+  }
 
   // --------------------------------------------------------------------------
   // Backoff helper

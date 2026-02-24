@@ -25,6 +25,18 @@ import 'http_handler.dart';
 /// [HttpResponse.bodyStream].  The `duration` field reflects the
 /// time-to-first-byte (TTFB) rather than the full content-transfer time.
 ///
+/// ### Per-request streaming override
+///
+/// Individual requests can override the handler-level default by setting the
+/// well-known metadata key [HttpRequest.streamingKey] to `true` or `false`:
+///
+/// ```dart
+/// final response = await client.get(
+///   Uri.parse('/large-file'),
+///   metadata: {HttpRequest.streamingKey: true},
+/// );
+/// ```
+///
 /// **Important:** streaming responses are incompatible with `RetryHandler` and
 /// `CircuitBreakerHandler` when those handlers need to inspect the body bytes.
 /// Use `response.toBuffered()` inside a custom handler when this matters.
@@ -64,10 +76,16 @@ final class TerminalHandler extends HttpHandler {
     final req = _buildHttpRequest(context.request);
     final stopwatch = Stopwatch()..start();
 
+    // Per-request streaming override via metadata, falling back to the
+    // handler-level [streamingMode] default.
+    final perRequest =
+        context.request.metadata[HttpRequest.streamingKey] as bool?;
+    final streaming = perRequest ?? streamingMode;
+
     try {
       final streamed = await _client.send(req);
 
-      if (streamingMode) {
+      if (streaming) {
         // Return immediately after receiving headers / first byte.
         stopwatch.stop();
         return HttpResponse.streaming(

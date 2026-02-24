@@ -236,6 +236,12 @@ final class CircuitBreakerState {
   int _successCount = 0;
   DateTime? _openedAt;
 
+  /// Monotonic stopwatch started when the circuit opens.
+  ///
+  /// Used for break-duration checks instead of [DateTime.now], making the
+  /// transition immune to wall-clock adjustments (NTP, DST, manual changes).
+  Stopwatch? _breakStopwatch;
+
   // Metrics counters ─────────────────────────────────────────────────────────
   int _totalCalls = 0;
   int _successfulCalls = 0;
@@ -264,15 +270,16 @@ final class CircuitBreakerState {
 
   CircuitState get _effectiveState {
     if (_state == CircuitState.open) {
-      final opened = _openedAt;
-      if (opened != null &&
-          DateTime.now().difference(opened) >= policy.breakDuration) {
+      final sw = _breakStopwatch;
+      if (sw != null && sw.elapsed >= policy.breakDuration) {
         // Lazily transition open → halfOpen on the first access after the
         // break duration has elapsed.  No background timer is required.
         _state = CircuitState.halfOpen;
         _successCount = 0;
         _halfOpenSlotTaken = false;
-        _lastTransitionAt = DateTime.now();
+        sw.stop();
+        _breakStopwatch = null;
+        _lastTransitionAt = DateTime.now().toUtc();
         _fireStateChange(CircuitState.open, CircuitState.halfOpen);
       }
     }
@@ -346,7 +353,8 @@ final class CircuitBreakerState {
   void _open() {
     final prev = _state;
     _state = CircuitState.open;
-    _openedAt = DateTime.now();
+    _openedAt = DateTime.now().toUtc();
+    _breakStopwatch = Stopwatch()..start();
     _failureCount = 0;
     _successCount = 0;
     _halfOpenSlotTaken = false;
@@ -362,10 +370,12 @@ final class CircuitBreakerState {
     _failureCount = 0;
     _successCount = 0;
     _openedAt = null;
+    _breakStopwatch?.stop();
+    _breakStopwatch = null;
     _halfOpenSlotTaken = false;
     _window.clear();
     _windowFailures = 0;
-    _lastTransitionAt = DateTime.now();
+    _lastTransitionAt = DateTime.now().toUtc();
     _fireStateChange(prev, CircuitState.closed);
   }
 
@@ -465,6 +475,30 @@ final class CircuitBreakerRegistry {
         policy.circuitName,
         () => CircuitBreakerState(policy: policy),
       );
+
+  /// Returns `true` if a circuit with [name] exists in this registry.
+  bool contains(String name) => _circuits.containsKey(name);
+
+  /// Returns the [CircuitBreakerState] for [name], or `null` if not found.
+  CircuitBreakerState? operator [](String name) => _circuits[name];
+
+  /// Returns `true` when **all** registered circuits are in
+  /// [CircuitState.closed] (i.e. healthy).
+  ///
+  /// An empty registry is considered healthy.
+  bool get isHealthy => _circuits.values.every(
+        (s) => s.state == CircuitState.closed,
+      );
+
+  /// Returns a map of circuit names to their current [CircuitState].
+  ///
+  /// Useful for health-check endpoints that need a per-circuit overview.
+  Map<String, CircuitState> get snapshot => {
+        for (final e in _circuits.entries) e.key: e.value.state,
+      };
+
+  /// The names of all registered circuits.
+  Iterable<String> get circuitNames => _circuits.keys;
 
   /// Resets all circuits.  Useful between integration-test runs.
   void resetAll() {

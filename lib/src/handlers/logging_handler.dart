@@ -61,17 +61,39 @@ final class LoggingHandler extends DelegatingHandler {
   ///                  parameters so secrets in query strings are not logged.
   /// [structured]   — when `true`, log messages are emitted as JSON objects
   ///                  instead of human-readable text (default `false`).
+  /// [redactedHeaders] — header names whose values are replaced with
+  ///                  `'[REDACTED]'` in structured log output.  Defaults to a
+  ///                  set of well-known sensitive headers (Authorization,
+  ///                  Cookie, etc.).  Pass an empty set to disable redaction.
+  /// [logHeaders]   — when `true` **and** [structured] is also `true`, request
+  ///                  headers are included in the structured log entry (with
+  ///                  redaction applied).  Defaults to `false`.
   LoggingHandler({
     Logger? logger,
     String Function(Uri)? uriSanitizer,
     bool structured = false,
+    Set<String>? redactedHeaders,
+    bool logHeaders = false,
   })  : _logger = logger ?? Logger('davianspace.http'),
         _uriSanitizer = uriSanitizer ?? _defaultSanitizer,
-        _structured = structured;
+        _structured = structured,
+        _redactedHeaders = redactedHeaders ?? _defaultRedactedHeaders,
+        _logHeaders = logHeaders;
 
   final Logger _logger;
   final String Function(Uri) _uriSanitizer;
   final bool _structured;
+  final Set<String> _redactedHeaders;
+  final bool _logHeaders;
+
+  /// Well-known headers that carry credentials or tokens.
+  static const Set<String> _defaultRedactedHeaders = {
+    'authorization',
+    'proxy-authorization',
+    'cookie',
+    'set-cookie',
+    'x-api-key',
+  };
 
   static String _defaultSanitizer(Uri uri) =>
       uri.replace(queryParameters: const {}).toString();
@@ -82,13 +104,15 @@ final class LoggingHandler extends DelegatingHandler {
     final uriLabel = _uriSanitizer(req.uri);
 
     if (_structured) {
-      _logger.info(
-        jsonEncode({
-          'event': 'request',
-          'method': req.method.value,
-          'uri': uriLabel,
-        }),
-      );
+      final entry = <String, Object>{
+        'event': 'request',
+        'method': req.method.value,
+        'uri': uriLabel,
+      };
+      if (_logHeaders && req.headers.isNotEmpty) {
+        entry['headers'] = _redactHeaders(req.headers);
+      }
+      _logger.info(jsonEncode(entry));
     } else {
       _logger.info('→ ${req.method.value} $uriLabel');
     }
@@ -160,5 +184,14 @@ final class LoggingHandler extends DelegatingHandler {
     final msg = error.toString();
     // Limit to 256 chars — enough for diagnosis without leaking large bodies.
     return msg.length <= 256 ? '$s: $msg' : '$s: ${msg.substring(0, 256)}…';
+  }
+
+  /// Returns a copy of [headers] with values of sensitive header names
+  /// replaced by `'[REDACTED]'`.
+  Map<String, String> _redactHeaders(Map<String, String> headers) {
+    return headers.map((name, value) {
+      final redacted = _redactedHeaders.contains(name.toLowerCase());
+      return MapEntry(name, redacted ? '[REDACTED]' : value);
+    });
   }
 }

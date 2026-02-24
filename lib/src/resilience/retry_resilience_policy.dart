@@ -82,6 +82,13 @@ typedef RetryResultContextCondition = bool Function(
   RetryContext ctx,
 );
 
+/// Callback invoked before each retry delay.
+///
+/// [attempt] is the 1-based attempt number that just failed.
+/// [exception] is the error that triggered the retry, or `null` when a
+/// result-based condition caused the retry.
+typedef RetryCallback = void Function(int attempt, Object? exception);
+
 // ---------------------------------------------------------------------------
 // RetryResiliencePolicy
 // ---------------------------------------------------------------------------
@@ -173,6 +180,7 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
   /// | [retryOnResultContext] | Context-aware result filter (takes priority over [retryOnResult]). |
   /// | [classifier]           | [OutcomeClassifier] that overrides all predicates when non-null. |
   /// | [eventHub]             | Receives a [RetryEvent] before each retry via `scheduleMicrotask`. |
+  /// | [onRetry]              | Synchronous callback invoked before each retry delay. |
   const RetryResiliencePolicy({
     required this.maxRetries,
     this.backoff = const NoBackoff(),
@@ -184,6 +192,7 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
     this.retryOnResultContext,
     this.classifier,
     this.eventHub,
+    this.onRetry,
   }) : assert(maxRetries >= 0, 'maxRetries must be non-negative');
 
   // ---------------------------------------------------------------------------
@@ -375,6 +384,22 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
   /// Events are dispatched via `scheduleMicrotask` and never block execution.
   final ResilienceEventHub? eventHub;
 
+  /// Optional callback invoked **before** each retry delay.
+  ///
+  /// Receives the 1-based attempt number that just failed and the
+  /// exception that triggered the retry (or `null` if a result condition
+  /// triggered the retry).
+  ///
+  /// ```dart
+  /// RetryResiliencePolicy(
+  ///   maxRetries: 3,
+  ///   onRetry: (attempt, exception) {
+  ///     log.info('Retry #$attempt after $exception');
+  ///   },
+  /// );
+  /// ```
+  final RetryCallback? onRetry;
+
   // ---------------------------------------------------------------------------
   // Execution
   // ---------------------------------------------------------------------------
@@ -385,6 +410,10 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
     Object? lastException;
     StackTrace? lastStackTrace;
     final stopwatch = Stopwatch()..start();
+
+    /// Returns `true` when [attempt] (0-based) is the final permitted attempt.
+    bool isLastAttempt(int attempt) =>
+        !retryForever && attempt >= totalAttempts! - 1;
 
     for (var attempt = 0; retryForever || attempt < totalAttempts!; attempt++) {
       // ── Cancellation check ────────────────────────────────────────────────
@@ -427,7 +456,7 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
               result is HttpResponse && cl.classifyResponse(result).isRetryable;
           if (!isRetryableResult) return result;
           // Retryable result with attempts remaining.
-          if (retryForever || attempt < totalAttempts! - 1) {
+          if (!isLastAttempt(attempt)) {
             _emitRetry(attempt, totalAttempts, null, null);
             continue;
           }
@@ -439,8 +468,7 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
         // Context-aware or legacy result condition.
         final shouldRetryResult =
             _evalResultCondition(result, attempt + 1, ctx);
-        if (shouldRetryResult &&
-            (retryForever || attempt < totalAttempts! - 1)) {
+        if (shouldRetryResult && !isLastAttempt(attempt)) {
           _emitRetry(attempt, totalAttempts, null, null);
           continue;
         }
@@ -464,7 +492,7 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
         }
 
         // In finite mode, stop after the last attempt.
-        if (!retryForever && attempt >= totalAttempts! - 1) break;
+        if (isLastAttempt(attempt)) break;
 
         _emitRetry(attempt, totalAttempts, e, st);
       }
@@ -472,7 +500,7 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
 
     stopwatch.stop();
     throw RetryExhaustedException(
-      attemptsMade: totalAttempts,
+      attemptsMade: totalAttempts ?? -1,
       cause: lastException,
       stackTrace: lastStackTrace,
     );
@@ -507,6 +535,9 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
     Object? exception,
     StackTrace? stackTrace,
   ) {
+    // Invoke the user-facing callback (synchronous, non-blocking).
+    onRetry?.call(attempt + 1, exception);
+
     final hub = eventHub;
     if (hub == null) return;
     hub.emit(

@@ -14,7 +14,9 @@ import 'package:meta/meta.dart';
 ///     "Timeout": { "Seconds": 10 },
 ///     "CircuitBreaker": { "CircuitName": "api", "FailureThreshold": 5, "BreakSeconds": 30 },
 ///     "Bulkhead": { "MaxConcurrency": 20 },
-///     "BulkheadIsolation": { "MaxConcurrentRequests": 10 }
+///     "BulkheadIsolation": { "MaxConcurrentRequests": 10 },
+///     "Hedging": { "HedgeAfterMs": 300, "MaxHedgedAttempts": 2 },
+///     "Fallback": { "StatusCodes": [500, 502, 503, 504] }
 ///   }
 /// }
 /// ```
@@ -27,6 +29,8 @@ final class ResilienceConfig {
     this.circuitBreaker,
     this.bulkhead,
     this.bulkheadIsolation,
+    this.hedging,
+    this.fallback,
   });
 
   /// Retry policy configuration.  `null` means no retry policy is configured.
@@ -45,13 +49,25 @@ final class ResilienceConfig {
   /// when both are present.
   final BulkheadIsolationConfig? bulkheadIsolation;
 
+  /// Hedging policy configuration.  `null` means no hedging is configured.
+  final HedgingConfig? hedging;
+
+  /// Fallback policy configuration.  `null` means no fallback is configured.
+  ///
+  /// **Note:** The [FallbackConfig] only configures which status codes trigger
+  /// a fallback.  The actual fallback action (producing the `HttpResponse`) is
+  /// always supplied programmatically because it cannot be expressed in JSON.
+  final FallbackConfig? fallback;
+
   /// Returns `true` when no policy section is configured.
   bool get isEmpty =>
       retry == null &&
       timeout == null &&
       circuitBreaker == null &&
       bulkhead == null &&
-      bulkheadIsolation == null;
+      bulkheadIsolation == null &&
+      hedging == null &&
+      fallback == null;
 
   @override
   String toString() => 'ResilienceConfig('
@@ -59,7 +75,9 @@ final class ResilienceConfig {
       'timeout: $timeout, '
       'circuitBreaker: $circuitBreaker, '
       'bulkhead: $bulkhead, '
-      'bulkheadIsolation: $bulkheadIsolation)';
+      'bulkheadIsolation: $bulkheadIsolation, '
+      'hedging: $hedging, '
+      'fallback: $fallback)';
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +217,10 @@ final class BulkheadIsolationConfig {
     this.maxConcurrentRequests = 10,
     this.maxQueueSize = 100,
     this.queueTimeoutSeconds = 10,
-  })  : assert(maxConcurrentRequests >= 1, 'maxConcurrentRequests must be >= 1'),
+  })  : assert(
+          maxConcurrentRequests >= 1,
+          'maxConcurrentRequests must be >= 1',
+        ),
         assert(maxQueueSize >= 0, 'maxQueueSize must be >= 0'),
         assert(queueTimeoutSeconds >= 0, 'queueTimeoutSeconds must be >= 0');
 
@@ -260,6 +281,78 @@ final class BackoffConfig {
       'baseMs: $baseMs, '
       'maxDelayMs: $maxDelayMs, '
       'useJitter: $useJitter)';
+}
+
+/// Configuration for a hedging policy.
+///
+/// Hedging fires speculative concurrent requests to reduce tail latency.
+/// Only configure hedging for **idempotent** operations.
+///
+/// ## Example JSON
+/// ```json
+/// {
+///   "Hedging": {
+///     "HedgeAfterMs": 300,
+///     "MaxHedgedAttempts": 2
+///   }
+/// }
+/// ```
+@immutable
+final class HedgingConfig {
+  /// Creates a [HedgingConfig].
+  ///
+  /// [hedgeAfterMs] must be non-negative. [maxHedgedAttempts] must be >= 1.
+  const HedgingConfig({
+    this.hedgeAfterMs = 200,
+    this.maxHedgedAttempts = 1,
+  })  : assert(hedgeAfterMs >= 0, 'hedgeAfterMs must be >= 0'),
+        assert(maxHedgedAttempts >= 1, 'maxHedgedAttempts must be >= 1');
+
+  /// Milliseconds to wait before launching the next speculative request.
+  final int hedgeAfterMs;
+
+  /// Number of additional concurrent requests on top of the original.
+  final int maxHedgedAttempts;
+
+  /// [hedgeAfterMs] expressed as a [Duration].
+  Duration get hedgeAfter => Duration(milliseconds: hedgeAfterMs);
+
+  @override
+  String toString() => 'HedgingConfig('
+      'hedgeAfterMs: $hedgeAfterMs, '
+      'maxHedgedAttempts: $maxHedgedAttempts)';
+}
+
+/// Configuration for a fallback policy.
+///
+/// Because a fallback action cannot be expressed in JSON (it is Dart code),
+/// this config class only captures the **trigger** configuration — which HTTP
+/// status codes should activate the fallback.  The actual fallback action must
+/// be supplied programmatically via `ResilienceConfigBinder.buildPipeline` or
+/// `ResilienceConfigBinder.buildFallbackPolicy`.
+///
+/// ## Example JSON
+/// ```json
+/// {
+///   "Fallback": {
+///     "StatusCodes": [500, 502, 503, 504]
+///   }
+/// }
+/// ```
+@immutable
+final class FallbackConfig {
+  /// Creates a [FallbackConfig].
+  const FallbackConfig({
+    this.statusCodes = const [500, 502, 503, 504],
+  });
+
+  /// HTTP status codes that trigger the fallback.
+  ///
+  /// Any exception also triggers the fallback regardless of this list.
+  final List<int> statusCodes;
+
+  @override
+  String toString() => 'FallbackConfig(statusCodes: $statusCodes)';
 }
 
 /// Identifies the back-off algorithm used between retry attempts.

@@ -72,6 +72,10 @@ final class HttpContext {
   // -------------------------------------------------------------------------
 
   /// Wall-clock time at which this context was created (pipeline entry).
+  ///
+  /// Uses the **local** time zone (`DateTime.now()`) for human-readable
+  /// diagnostics.  For monotonic elapsed-time measurement, use [elapsed]
+  /// instead.
   final DateTime startedAt;
 
   /// Elapsed time since [startedAt].

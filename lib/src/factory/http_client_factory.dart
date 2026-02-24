@@ -300,11 +300,20 @@ final class HttpClientBuilder {
       pipelineBuilder.addHandler(h);
     }
 
+    // Capture handler list so dispose can clean up policy resources
+    // (e.g. circuit-breaker listener subscriptions).
+    final capturedHandlers = List<DelegatingHandler>.of(_handlers);
+
     return ResilientHttpClient(
       pipeline: pipelineBuilder.build(),
       baseUri: _baseUri,
       defaultHeaders: Map.unmodifiable(_defaultHeaders),
-      onDispose: terminal.dispose,
+      onDispose: () {
+        terminal.dispose();
+        for (final h in capturedHandlers) {
+          if (h is PolicyHandler) h.policy.dispose();
+        }
+      },
     );
   }
 

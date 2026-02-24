@@ -1,20 +1,24 @@
 // ignore_for_file: avoid_print
+import 'dart:convert';
+
 import 'package:davianspace_http_resilience/davianspace_http_resilience.dart';
 import 'package:logging/logging.dart';
 
 /// ============================================================
-/// davianspace_http_resilience — Full Usage Example
+/// davianspace_http_resilience — Production Usage Examples
 /// ============================================================
 ///
-/// This example demonstrates:
+/// This example demonstrates enterprise-ready patterns:
 ///
-///  1.  Basic fluent client construction with all policies
-///  2.  Named client registration via HttpClientFactory
-///  3.  Manual pipeline construction with custom handlers
-///  4.  RetryPredicates composition
-///  5.  CancellationToken usage
-///  6.  HttpResponse extension helpers
-///  7.  CircuitBreakerRegistry inspection
+///  1. Full-stack resilient client with all policies
+///  2. Named client factory registry
+///  3. Custom DelegatingHandler (auth / correlation)
+///  4. CancellationToken usage
+///  5. RetryPredicates composition
+///  6. Configuration-driven policies (JSON)
+///  7. Per-request streaming override
+///  8. Circuit breaker health monitoring
+///  9. Header-redacted security logging
 ///
 /// Run with:
 ///   dart run example/example.dart
@@ -31,11 +35,15 @@ void main() async {
   await _example3CustomHandler();
   _example4CancellationToken();
   _example5RetryPredicates();
+  _example6ConfigDrivenPolicies();
+  _example7PerRequestStreaming();
+  _example8CircuitBreakerHealth();
+  _example9HeaderRedaction();
   print('\nAll examples completed.');
 }
 
 // ─────────────────────────────────────────────────────────────
-// 1. Basic client with all policies
+// 1. Full-stack resilient client
 // ─────────────────────────────────────────────────────────────
 
 Future<void> _example1BasicClient() async {
@@ -76,11 +84,11 @@ Future<void> _example1BasicClient() async {
     print('  → title: ${json?['title']}');
     print('  → duration: ${response.duration.inMilliseconds}ms');
   } on HttpStatusException catch (e) {
-    // HttpStatusException is an HttpResilienceException — catch it first since
-    // it is the more specific type.
     print('  ✗ HTTP error: $e');
   } on HttpResilienceException catch (e) {
     print('  ✗ Resilience error: $e');
+  } finally {
+    client.dispose();
   }
 }
 
@@ -118,24 +126,27 @@ Future<void> _example2NamedClientFactory() async {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 3. Manual pipeline with a custom handler
+// 3. Custom handler (correlation ID injection)
 // ─────────────────────────────────────────────────────────────
 
 Future<void> _example3CustomHandler() async {
   print('\n[Example 3] Custom DelegatingHandler in the pipeline');
 
-  // Use HttpClientBuilder directly — lightweight, no factory needed.
   final client = HttpClientBuilder('custom')
       .withBaseUri(Uri.parse('https://jsonplaceholder.typicode.com'))
       .addHandler(_CorrelationIdHandler())
       .withLogging()
       .build();
 
-  final response = await client.get(Uri.parse('/users/1'));
-  print(
-    '  → X-Correlation-Id echoed: '
-    '${response.headers['x-correlation-id'] ?? "(not echoed by server — check request)"}',
-  );
+  try {
+    final response = await client.get(Uri.parse('/users/1'));
+    print(
+      '  → X-Correlation-Id echoed: '
+      '${response.headers['x-correlation-id'] ?? "(not echoed by server — check request)"}',
+    );
+  } finally {
+    client.dispose();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -194,6 +205,161 @@ void _example5RetryPredicates() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 6. Configuration-driven policies (JSON)
+// ─────────────────────────────────────────────────────────────
+
+void _example6ConfigDrivenPolicies() {
+  print('\n[Example 6] Configuration-driven policies from JSON');
+
+  const configJson = '''
+  {
+    "Resilience": {
+      "Retry": {
+        "MaxRetries": 3,
+        "Backoff": { "Type": "exponential", "BaseMs": 200, "UseJitter": true }
+      },
+      "Timeout": { "Seconds": 10 },
+      "CircuitBreaker": {
+        "CircuitName": "config-demo",
+        "FailureThreshold": 5,
+        "BreakSeconds": 30
+      },
+      "BulkheadIsolation": {
+        "MaxConcurrentRequests": 20,
+        "MaxQueueSize": 50
+      },
+      "Hedging": {
+        "HedgeAfterMs": 300,
+        "MaxHedgedAttempts": 2
+      },
+      "Fallback": {
+        "StatusCodes": [500, 502, 503, 504]
+      }
+    }
+  }
+  ''';
+
+  const loader = ResilienceConfigLoader();
+  const binder = ResilienceConfigBinder();
+
+  final config = loader.load(configJson);
+  print('  → Config loaded: isEmpty=${config.isEmpty}');
+  print('  → Retry: ${config.retry}');
+  print('  → Timeout: ${config.timeout}');
+  print('  → CircuitBreaker: ${config.circuitBreaker}');
+  print('  → BulkheadIsolation: ${config.bulkheadIsolation}');
+  print('  → Hedging: ${config.hedging}');
+  print('  → Fallback: ${config.fallback}');
+
+  // Build a composed pipeline from all configured sections
+  final pipeline = binder.buildPipeline(config);
+  print('  → Pipeline built: $pipeline');
+
+  // Build individual policies
+  if (config.hedging != null) {
+    final hedging = binder.buildHedging(config.hedging!);
+    print('  → Hedging policy: $hedging');
+  }
+
+  if (config.fallback != null) {
+    final fallback = binder.buildFallbackPolicy(
+      config.fallback!,
+      fallbackAction: (ctx, err, st) async => HttpResponse(
+        statusCode: 200,
+        body: utf8.encode('{"offline": true}'),
+      ),
+    );
+    print('  → Fallback policy: $fallback');
+  }
+
+  // Register all into the policy registry
+  PolicyRegistry.instance.loadFromConfig(config, prefix: 'demo');
+  print('  → Policies registered in PolicyRegistry with prefix "demo"');
+
+  // Cleanup
+  pipeline.dispose();
+}
+
+// ─────────────────────────────────────────────────────────────
+// 7. Per-request streaming override
+// ─────────────────────────────────────────────────────────────
+
+void _example7PerRequestStreaming() {
+  print('\n[Example 7] Per-request streaming override');
+
+  // Demonstrate the metadata key (no actual HTTP call needed)
+  final request = HttpRequest(
+    method: HttpMethod.get,
+    uri: Uri.parse('https://api.example.com/large-file'),
+    metadata: {HttpRequest.streamingKey: true},
+  );
+
+  final isStreaming =
+      request.metadata[HttpRequest.streamingKey] as bool? ?? false;
+  print('  → Metadata key: ${HttpRequest.streamingKey}');
+  print('  → Request streaming override: $isStreaming');
+
+  // Force-buffer example
+  final bufferedRequest = HttpRequest(
+    method: HttpMethod.get,
+    uri: Uri.parse('https://api.example.com/small-resource'),
+    metadata: {HttpRequest.streamingKey: false},
+  );
+
+  final isBuffered =
+      bufferedRequest.metadata[HttpRequest.streamingKey] as bool? ?? true;
+  print('  → Force-buffer override: ${!isBuffered}');
+}
+
+// ─────────────────────────────────────────────────────────────
+// 8. Circuit breaker health monitoring
+// ─────────────────────────────────────────────────────────────
+
+void _example8CircuitBreakerHealth() {
+  print('\n[Example 8] Circuit breaker health monitoring');
+
+  final registry = CircuitBreakerRegistry.instance;
+
+  // Check if we have circuits from earlier examples
+  final names = registry.circuitNames.toList();
+  print('  → Registered circuits: $names');
+
+  // registry.isHealthy checks ALL circuits (getter, not a method).
+  print('  → All circuits healthy: ${registry.isHealthy}');
+
+  // Use snapshot for per-circuit state details.
+  final snap = registry.snapshot;
+  for (final entry in snap.entries) {
+    print('  → Circuit "${entry.key}": state=${entry.value}');
+  }
+
+  if (names.isEmpty) {
+    print('  → (No circuits registered — run Example 1 first)');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 9. Header-redacted security logging
+// ─────────────────────────────────────────────────────────────
+
+void _example9HeaderRedaction() {
+  print('\n[Example 9] Header redaction in logging');
+
+  // Demonstrate that LoggingHandler can be configured with custom redaction
+  print('  → Default redacted headers:');
+  print('    - authorization');
+  print('    - proxy-authorization');
+  print('    - cookie');
+  print('    - set-cookie');
+  print('    - x-api-key');
+  print('  → Custom redacted headers can be added via the constructor:');
+  print('    LoggingHandler(');
+  print('      logHeaders: true,');
+  print("      redactedHeaders: {'authorization', 'x-custom-secret'},");
+  print('    )');
+}
+
+// ─────────────────────────────────────────────────────────────
 // Helpers & custom handler
 // ─────────────────────────────────────────────────────────────
 
@@ -205,6 +371,9 @@ void _configureLogging() {
 }
 
 /// Injects a unique correlation ID into every outgoing request.
+///
+/// This is a common enterprise pattern for distributed tracing. Each request
+/// gets a unique identifier that can be tracked across microservices.
 final class _CorrelationIdHandler extends DelegatingHandler {
   _CorrelationIdHandler();
 
