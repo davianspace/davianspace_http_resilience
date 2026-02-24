@@ -8,8 +8,10 @@ description: >
   and deterministic resource lifecycle — all with zero reflection, strict
   null-safety, and clean-architecture layering.
 version: 1.0.1
+homepage: https://github.com/davianspace/davianspace_http_resilience
 repository: https://github.com/davianspace/davianspace_http_resilience
 issue_tracker: https://github.com/davianspace/davianspace_http_resilience/issues
+license: MIT
 
 environment:
   sdk: ">=3.0.0 <4.0.0"

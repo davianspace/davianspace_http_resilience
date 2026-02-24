@@ -32,10 +32,10 @@ Please report unacceptable behaviour to the maintainers.
 
 1. Fork the repository on GitHub.
 2. Clone your fork locally.
-3. Create a feature branch from `main`.
+3. Create a feature branch from `master`.
 4. Make your changes.
 5. Run the full quality gate before pushing.
-6. Open a pull request against `main`.
+6. Open a pull request against `master`.
 
 ---
 

@@ -10,9 +10,19 @@ build/
 .pub-cache/
 .pub-cache/
 pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
 
 # Coverage
 coverage/
+
+.env
+*.keystore
+*.jks
+*.log
+build/
+.idea/
+.vscode/
 
 # Logs
 *.log
