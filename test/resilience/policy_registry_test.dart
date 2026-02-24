@@ -175,12 +175,12 @@ void main() {
       );
     });
 
-    test('get<T>() throws TypeError when the policy is a different subtype',
+    test('get<T>() throws StateError when the policy is a different subtype',
         () {
       final registry = PolicyRegistry()..add('p', _CountingPolicy());
       expect(
         () => registry.get<_AnotherPolicy>('p'),
-        throwsA(isA<TypeError>()),
+        throwsA(isA<StateError>()),
       );
     });
 

@@ -107,7 +107,8 @@ typedef ResilienceEventListener<E extends ResilienceEvent> = FutureOr<void>
 ///
 /// [ResilienceEventHub] is single-isolate safe. Do not share instances
 /// across Dart isolates.
-final class ResilienceEventHub {  /// Creates a [ResilienceEventHub].
+final class ResilienceEventHub {
+  /// Creates a [ResilienceEventHub].
   ///
   /// [onListenerError] — optional callback invoked when a listener throws
   /// synchronously or its returned [Future] completes with an error. When
@@ -120,17 +121,50 @@ final class ResilienceEventHub {  /// Creates a [ResilienceEventHub].
   ///   onListenerError: (e, st) => log.severe('Listener error', e, st),
   /// );
   /// ```
-  ResilienceEventHub({this.onListenerError});
+  ResilienceEventHub({this.onListenerError, this.maxListeners = 100});
 
   /// Called when a listener throws or its [Future] completes with an error.
   ///
   /// `null` by default — errors are silently swallowed.
   final void Function(Object error, StackTrace st)? onListenerError;
+
+  /// Maximum number of total listeners before a warning is emitted via
+  /// [onListenerError].
+  ///
+  /// This is a diagnostic guard to detect listener leaks in long-running apps.
+  /// Set to `0` to disable the check.
+  final int maxListeners;
+
   // Typed listeners stored under their exact runtime Type key.
   final _typedListeners = HashMap<Type, List<Function>>();
 
   // Global listeners invoked for every event.
   final _anyListeners = <ResilienceEventListener<ResilienceEvent>>[];
+
+  /// The total number of registered listeners (typed + global).
+  int get listenerCount {
+    var count = _anyListeners.length;
+    for (final list in _typedListeners.values) {
+      count += list.length;
+    }
+    return count;
+  }
+
+  void _checkMaxListeners() {
+    if (maxListeners > 0 && listenerCount > maxListeners) {
+      final handler = onListenerError;
+      if (handler != null) {
+        handler(
+          StateError(
+            'ResilienceEventHub: $listenerCount listeners registered, '
+            'exceeding maxListeners=$maxListeners. '
+            'Possible listener leak — ensure off()/offAny() is called.',
+          ),
+          StackTrace.current,
+        );
+      }
+    }
+  }
 
   // --------------------------------------------------------------------------
   // Typed subscription
@@ -152,7 +186,10 @@ final class ResilienceEventHub {  /// Creates a [ResilienceEventHub].
     ResilienceEventListener<E> listener,
   ) {
     final list = _typedListeners.putIfAbsent(E, () => []);
-    if (!list.contains(listener)) list.add(listener);
+    if (!list.contains(listener)) {
+      list.add(listener);
+      _checkMaxListeners();
+    }
     return this;
   }
 
@@ -192,7 +229,10 @@ final class ResilienceEventHub {  /// Creates a [ResilienceEventHub].
   ResilienceEventHub onAny(
     ResilienceEventListener<ResilienceEvent> listener,
   ) {
-    if (!_anyListeners.contains(listener)) _anyListeners.add(listener);
+    if (!_anyListeners.contains(listener)) {
+      _anyListeners.add(listener);
+      _checkMaxListeners();
+    }
     return this;
   }
 

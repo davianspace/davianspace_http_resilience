@@ -41,6 +41,10 @@ abstract class DelegatingHandler extends HttpHandler {
     return _innerHandler!;
   }
 
+  /// Sets the next handler in the chain.
+  ///
+  /// Should only be set once during pipeline construction. Reassigning
+  /// after the pipeline is built may cause unexpected behavior.
   set innerHandler(HttpHandler handler) => _innerHandler = handler;
 
   /// Returns `true` when an inner handler has been assigned.

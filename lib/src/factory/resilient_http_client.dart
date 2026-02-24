@@ -47,10 +47,14 @@ final class ResilientHttpClient {
   final Uri? _baseUri;
   final Map<String, String> _defaultHeaders;
   final void Function()? _onDispose;
+  bool _disposed = false;
 
   // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
+
+  /// Returns `true` after [dispose] has been called.
+  bool get isDisposed => _disposed;
 
   /// Releases resources held by this client's pipeline.
   ///
@@ -60,7 +64,18 @@ final class ResilientHttpClient {
   /// the injected client is **not** closed.
   ///
   /// After calling [dispose], this instance must not be used again.
-  void dispose() => _onDispose?.call();
+  void dispose() {
+    _disposed = true;
+    _onDispose?.call();
+  }
+
+  void _checkNotDisposed() {
+    if (_disposed) {
+      throw StateError(
+        'Cannot use a ResilientHttpClient after dispose() has been called.',
+      );
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Verb helpers
@@ -71,13 +86,15 @@ final class ResilientHttpClient {
     Uri uri, {
     Map<String, String>? headers,
     Map<String, Object?>? metadata,
-  }) =>
-      _send(
-        HttpMethod.get,
-        uri,
-        headers: headers,
-        metadata: metadata,
-      );
+  }) {
+    _checkNotDisposed();
+    return _send(
+      HttpMethod.get,
+      uri,
+      headers: headers,
+      metadata: metadata,
+    );
+  }
 
   /// Sends a POST request to [uri] with an optional [body].
   Future<HttpResponse> post(
@@ -85,14 +102,16 @@ final class ResilientHttpClient {
     Object? body,
     Map<String, String>? headers,
     Map<String, Object?>? metadata,
-  }) =>
-      _send(
-        HttpMethod.post,
-        uri,
-        body: body,
-        headers: headers,
-        metadata: metadata,
-      );
+  }) {
+    _checkNotDisposed();
+    return _send(
+      HttpMethod.post,
+      uri,
+      body: body,
+      headers: headers,
+      metadata: metadata,
+    );
+  }
 
   /// Sends a PUT request to [uri] with an optional [body].
   Future<HttpResponse> put(
@@ -100,14 +119,16 @@ final class ResilientHttpClient {
     Object? body,
     Map<String, String>? headers,
     Map<String, Object?>? metadata,
-  }) =>
-      _send(
-        HttpMethod.put,
-        uri,
-        body: body,
-        headers: headers,
-        metadata: metadata,
-      );
+  }) {
+    _checkNotDisposed();
+    return _send(
+      HttpMethod.put,
+      uri,
+      body: body,
+      headers: headers,
+      metadata: metadata,
+    );
+  }
 
   /// Sends a PATCH request to [uri] with an optional [body].
   Future<HttpResponse> patch(
@@ -115,27 +136,31 @@ final class ResilientHttpClient {
     Object? body,
     Map<String, String>? headers,
     Map<String, Object?>? metadata,
-  }) =>
-      _send(
-        HttpMethod.patch,
-        uri,
-        body: body,
-        headers: headers,
-        metadata: metadata,
-      );
+  }) {
+    _checkNotDisposed();
+    return _send(
+      HttpMethod.patch,
+      uri,
+      body: body,
+      headers: headers,
+      metadata: metadata,
+    );
+  }
 
   /// Sends a DELETE request to [uri].
   Future<HttpResponse> delete(
     Uri uri, {
     Map<String, String>? headers,
     Map<String, Object?>? metadata,
-  }) =>
-      _send(
-        HttpMethod.delete,
-        uri,
-        headers: headers,
-        metadata: metadata,
-      );
+  }) {
+    _checkNotDisposed();
+    return _send(
+      HttpMethod.delete,
+      uri,
+      headers: headers,
+      metadata: metadata,
+    );
+  }
 
   /// Sends a HEAD request to [uri].
   ///
@@ -146,13 +171,15 @@ final class ResilientHttpClient {
     Uri uri, {
     Map<String, String>? headers,
     Map<String, Object?>? metadata,
-  }) =>
-      _send(
-        HttpMethod.head,
-        uri,
-        headers: headers,
-        metadata: metadata,
-      );
+  }) {
+    _checkNotDisposed();
+    return _send(
+      HttpMethod.head,
+      uri,
+      headers: headers,
+      metadata: metadata,
+    );
+  }
 
   /// Sends an OPTIONS request to [uri].
   ///
@@ -162,13 +189,15 @@ final class ResilientHttpClient {
     Uri uri, {
     Map<String, String>? headers,
     Map<String, Object?>? metadata,
-  }) =>
-      _send(
-        HttpMethod.options,
-        uri,
-        headers: headers,
-        metadata: metadata,
-      );
+  }) {
+    _checkNotDisposed();
+    return _send(
+      HttpMethod.options,
+      uri,
+      headers: headers,
+      metadata: metadata,
+    );
+  }
 
   /// Sends a fully constructed [HttpRequest] directly through the pipeline.
   ///
@@ -177,6 +206,7 @@ final class ResilientHttpClient {
     HttpRequest request, {
     Map<String, Object?>? metadata,
   }) {
+    _checkNotDisposed();
     final ctx = HttpContext(
       request: metadata != null
           ? request.copyWith(
@@ -206,7 +236,10 @@ final class ResilientHttpClient {
       bodyBytes = body;
     } else if (body is String) {
       bodyBytes = utf8.encode(body);
-      mergedHeaders.putIfAbsent('Content-Type', () => 'application/json');
+      mergedHeaders.putIfAbsent(
+        'Content-Type',
+        () => 'text/plain; charset=utf-8',
+      );
     }
 
     final request = HttpRequest(

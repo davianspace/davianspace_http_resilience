@@ -47,6 +47,7 @@ final class BulkheadHandler extends DelegatingHandler {
       throw BulkheadRejectedException(
         maxConcurrency: _policy.maxConcurrency,
         maxQueueDepth: _policy.maxQueueDepth,
+        reason: BulkheadRejectionReason.queueTimeout,
       );
     }
 

@@ -415,7 +415,10 @@ final class CircuitBreakerState {
 
   void _fireStateChange(CircuitState from, CircuitState to) {
     if (from == to) return; // defensive: no-op on identity transition
-    for (final listener in _listeners) {
+    // Snapshot to guard against ConcurrentModificationError if a listener
+    // calls subscription.cancel() during dispatch.
+    final snapshot = List<CircuitStateChangeCallback>.of(_listeners);
+    for (final listener in snapshot) {
       listener(from, to);
     }
   }

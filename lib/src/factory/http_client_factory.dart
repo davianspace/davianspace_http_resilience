@@ -5,6 +5,7 @@ import '../handlers/bulkhead_handler.dart';
 import '../handlers/bulkhead_isolation_handler.dart';
 import '../handlers/circuit_breaker_handler.dart';
 import '../handlers/fallback_handler.dart';
+import '../handlers/hedging_handler.dart';
 import '../handlers/logging_handler.dart';
 import '../handlers/policy_handler.dart';
 import '../handlers/retry_handler.dart';
@@ -16,6 +17,7 @@ import '../policies/bulkhead_isolation_policy.dart';
 import '../policies/bulkhead_policy.dart';
 import '../policies/circuit_breaker_policy.dart';
 import '../policies/fallback_policy.dart';
+import '../policies/hedging_policy.dart';
 import '../policies/retry_policy.dart';
 import '../policies/timeout_policy.dart';
 import '../resilience/policy_registry.dart';
@@ -67,6 +69,7 @@ final class HttpClientBuilder {
   final Map<String, String> _defaultHeaders = {};
   final List<DelegatingHandler> _handlers = [];
   http.Client? _httpClient;
+  bool _streamingMode = false;
 
   // --------------------------------------------------------------------------
   // Configuration methods
@@ -234,6 +237,48 @@ final class HttpClientBuilder {
     return this;
   }
 
+  /// Enables streaming mode for this client.
+  ///
+  /// When streaming mode is active, the [TerminalHandler] does **not** buffer
+  /// the response body.  Instead, `response.isStreaming == true` and the body
+  /// bytes are available via `response.bodyStream`.
+  ///
+  /// Streaming is ideal for large file downloads or Server-Sent Events where
+  /// buffering the entire body would be wasteful or impossible.
+  ///
+  /// Adds a [HedgingHandler] configured with [policy].
+  ///
+  /// Hedging fires identical concurrent speculative requests to reduce tail
+  /// latency (p95+). Place this **after** [withLogging] and **before** retry
+  /// or circuit-breaker handlers so the hedging window spans only the
+  /// actual HTTP round-trip:
+  ///
+  /// ```dart
+  /// builder
+  ///     .withLogging()
+  ///     .withHedging(HedgingPolicy(
+  ///       hedgeAfter: Duration(milliseconds: 200),
+  ///       maxHedgedAttempts: 1,
+  ///     ));
+  /// ```
+  ///
+  /// **Only use hedging for idempotent operations** (GET, HEAD, PUT, DELETE).
+  /// Never hedge POST or PATCH without server-side idempotency guarantees.
+  HttpClientBuilder withHedging(HedgingPolicy policy) {
+    _handlers.add(HedgingHandler(policy));
+    return this;
+  }
+
+  /// **Incompatibility:** [RetryHandler] and [CircuitBreakerHandler] inspect
+  /// the response status code (not the body), so they remain fully compatible
+  /// with streaming mode.  However any handler that reads `response.body`
+  /// bytes will receive `null` — those handlers must call
+  /// `await response.toBuffered()` before inspecting bytes.
+  HttpClientBuilder withStreamingMode() {
+    _streamingMode = true;
+    return this;
+  }
+
   // --------------------------------------------------------------------------
   // Build
   // --------------------------------------------------------------------------
@@ -243,7 +288,10 @@ final class HttpClientBuilder {
   /// May be called multiple times; each call produces a freshly constructed
   /// client with an independent pipeline instance.
   ResilientHttpClient build() {
-    final terminal = TerminalHandler(client: _httpClient);
+    final terminal = TerminalHandler(
+      client: _httpClient,
+      streamingMode: _streamingMode,
+    );
 
     final pipelineBuilder = HttpPipelineBuilder()
       ..withTerminalHandler(terminal);
@@ -287,8 +335,12 @@ final class _ClientRegistration {
     _cached = null; // new configurator -> must rebuild
   }
 
-  /// Clears the cached client so it is rebuilt on the next createClient call.
-  void invalidate() => _cached = null;
+  /// Disposes the cached client (if any) and clears the cache so it is
+  /// rebuilt on the next `createClient` call.
+  void invalidate() {
+    _cached?.dispose();
+    _cached = null;
+  }
 
   List<void Function(HttpClientBuilder)> get configs =>
       List.unmodifiable(_configs);

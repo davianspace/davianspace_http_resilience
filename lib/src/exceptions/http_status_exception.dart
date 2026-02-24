@@ -30,9 +30,9 @@ final class HttpStatusException extends HttpResilienceException {
   /// Creates an [HttpStatusException] for [statusCode].
   ///
   /// [bodyBytes] — raw response body bytes.  The human-readable [message]
-  /// includes a UTF-8 decoded preview, and the [body] getter decodes them on
-  /// demand so no extra `String` allocation is retained when [body] is never
-  /// accessed.
+  /// includes a truncated UTF-8 decoded preview (up to 512 characters), and
+  /// the [body] getter decodes the full bytes on demand so no extra `String`
+  /// allocation is retained when [body] is never accessed.
   HttpStatusException({
     required this.statusCode,
     List<int>? bodyBytes,
@@ -40,7 +40,7 @@ final class HttpStatusException extends HttpResilienceException {
         super(
           bodyBytes != null && bodyBytes.isNotEmpty
               ? 'HTTP $statusCode: '
-                  '${utf8.decode(bodyBytes, allowMalformed: true)}'
+                  '${_truncate(utf8.decode(bodyBytes, allowMalformed: true), 512)}'
               : 'HTTP $statusCode',
         );
 
@@ -49,13 +49,22 @@ final class HttpStatusException extends HttpResilienceException {
 
   final List<int>? _bodyBytes;
 
+  String? _cachedBody;
+
   /// The response body decoded as UTF-8, or `null` when no body was present.
   ///
-  /// Decoded on first access; repeated calls re-decode from the stored bytes.
+  /// Decoded on first access; repeated calls return the cached result.
   String? get body {
+    if (_cachedBody != null) return _cachedBody;
     final bytes = _bodyBytes;
     if (bytes == null || bytes.isEmpty) return null;
-    return utf8.decode(bytes, allowMalformed: true);
+    return _cachedBody = utf8.decode(bytes, allowMalformed: true);
+  }
+
+  /// Truncates [s] to [maxLength] characters, appending '…' if truncated.
+  static String _truncate(String s, int maxLength) {
+    if (s.length <= maxLength) return s;
+    return '${s.substring(0, maxLength)}…';
   }
 
   @override

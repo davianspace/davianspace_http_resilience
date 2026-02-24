@@ -200,7 +200,13 @@ final class ResilienceConfigLoader {
       'linear' => BackoffType.linear,
       'exponential' => BackoffType.exponential,
       'decorrelatedjitter' => BackoffType.decorrelatedJitter,
-      _ => BackoffType.none,
+      '' => BackoffType.none,
+      'none' => BackoffType.none,
+      _ => throw FormatException(
+            'Unknown backoff type "${_string(raw, 'Type', 'none')}". '
+            'Expected one of: none, constant, linear, exponential, '
+            'decorrelatedJitter.',
+          ),
     };
     final dynamic rawMaxDelayMs = raw['MaxDelayMs'];
     final int? maxDelayMs = switch (rawMaxDelayMs) {

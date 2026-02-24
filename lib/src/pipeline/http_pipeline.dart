@@ -79,6 +79,25 @@ final class HttpPipeline extends HttpHandler {
   @override
   Future<HttpResponse> send(HttpContext context) => _root.send(context);
 
+  /// Releases resources held by handlers in the pipeline.
+  ///
+  /// Walks the handler chain and disposes any [TerminalHandler] found,
+  /// closing internally-owned [http.Client] instances.
+  void dispose() {
+    var current = _root as HttpHandler?;
+    while (current != null) {
+      if (current is TerminalHandler) {
+        current.dispose();
+        break;
+      }
+      if (current is DelegatingHandler && current.hasInnerHandler) {
+        current = current.innerHandler;
+      } else {
+        break;
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Internal wiring
   // ---------------------------------------------------------------------------

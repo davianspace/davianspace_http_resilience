@@ -294,7 +294,7 @@ void main() {
 
     test('handler rewrites response status code', () async {
       final terminal = StubTerminal(
-        response: const HttpResponse(statusCode: 200),
+        response: HttpResponse(statusCode: 200),
       );
       final rewriter = RecordingHandler(
         'rewriter',
@@ -310,7 +310,7 @@ void main() {
 
     test('outer handler sees the response mutated by inner handler', () async {
       final terminal = StubTerminal(
-        response: const HttpResponse(statusCode: 200),
+        response: HttpResponse(statusCode: 200),
       );
       // inner: 200 → 201; outer: 201 → 204
       final inner = RecordingHandler('inner', [], mutateResponseStatus: 201);
@@ -429,7 +429,7 @@ void main() {
       );
       // 503 response → shouldCount → trips circuit after first call
       final terminal = StubTerminal(
-        response: const HttpResponse(statusCode: 503),
+        response: HttpResponse(statusCode: 503),
       );
       final pipeline = HttpPipeline([
         CircuitBreakerHandler(policy, registry: registry),
@@ -457,7 +457,7 @@ void main() {
         'sc',
         log,
         shortCircuit: true,
-        shortCircuitResponse: const HttpResponse(statusCode: 418),
+        shortCircuitResponse: HttpResponse(statusCode: 418),
       );
       sc.innerHandler = terminal;
 
@@ -494,7 +494,7 @@ void main() {
         'sc',
         log,
         shortCircuit: true,
-        shortCircuitResponse: const HttpResponse(statusCode: 202),
+        shortCircuitResponse: HttpResponse(statusCode: 202),
       );
 
       final pipeline = HttpPipeline([outer, sc, terminal]);
@@ -643,8 +643,8 @@ void main() {
 
     test('innerHandler can be reassigned', () async {
       final h = RecordingHandler('A', []);
-      final t1 = StubTerminal(response: const HttpResponse(statusCode: 201));
-      final t2 = StubTerminal(response: const HttpResponse(statusCode: 202));
+      final t1 = StubTerminal(response: HttpResponse(statusCode: 201));
+      final t2 = StubTerminal(response: HttpResponse(statusCode: 202));
 
       h.innerHandler = t1;
       final r1 = await h.send(makeContext());

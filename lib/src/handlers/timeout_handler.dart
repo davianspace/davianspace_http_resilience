@@ -29,10 +29,15 @@ final class TimeoutHandler extends DelegatingHandler {
     try {
       return await innerHandler.send(context).timeout(_policy.timeout);
     } on TimeoutException {
-      // Note: we do NOT cancel context.cancellationToken here — the context
-      // token spans the entire multi-attempt operation (including retries), so
-      // cancelling it here would prevent retry handlers from making further
-      // attempts.  Timeout enforcement is handled purely by the abandoned future.
+      // Note: the inner handler's future is abandoned but NOT cancelled.
+      // Dart's Future.timeout() stops waiting but cannot cancel the
+      // underlying I/O — this is a platform limitation.
+      //
+      // We intentionally do NOT cancel context.cancellationToken here because
+      // the context token spans the entire multi-attempt operation (including
+      // retries). Cancelling it would prevent retry handlers from making
+      // further attempts. The abandoned future will eventually complete
+      // and be garbage collected.
       throw HttpTimeoutException(timeout: _policy.timeout);
     }
   }

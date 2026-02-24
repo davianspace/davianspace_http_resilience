@@ -73,38 +73,39 @@ final class CircuitBreakerResiliencePolicy extends ResiliencePolicy {
           ),
         ) {
     for (final cb in onStateChange ?? <CircuitStateChangeCallback>[]) {
-      _state.addStateChangeListener(cb);
+      _subscriptions.add(_state.addStateChangeListener(cb));
     }
     // Internal event hub listener — emits CircuitOpenEvent / CircuitCloseEvent.
     if (eventHub != null) {
       final hub = eventHub;
-      _state.addStateChangeListener((from, to) {
-        switch (to) {
-          case CircuitState.open:
-            hub.emit(
-              CircuitOpenEvent(
-                circuitName: circuitName,
-                previousState: from,
-                // closed→open = failureThreshold failures;
-                // halfOpen→open = 1 probe failure.
-                consecutiveFailures: from == CircuitState.closed
-                    ? failureThreshold
-                    : 1,
-                source: 'CircuitBreakerResiliencePolicy',
-              ),
-            );
-          case CircuitState.closed:
-            hub.emit(
-              CircuitCloseEvent(
-                circuitName: circuitName,
-                previousState: from,
-                source: 'CircuitBreakerResiliencePolicy',
-              ),
-            );
-          case CircuitState.halfOpen:
-            break; // no dedicated event for half-open transition
-        }
-      });
+      _subscriptions.add(
+        _state.addStateChangeListener((from, to) {
+          switch (to) {
+            case CircuitState.open:
+              hub.emit(
+                CircuitOpenEvent(
+                  circuitName: circuitName,
+                  previousState: from,
+                  // closed→open = failureThreshold failures;
+                  // halfOpen→open = 1 probe failure.
+                  consecutiveFailures:
+                      from == CircuitState.closed ? failureThreshold : 1,
+                  source: 'CircuitBreakerResiliencePolicy',
+                ),
+              );
+            case CircuitState.closed:
+              hub.emit(
+                CircuitCloseEvent(
+                  circuitName: circuitName,
+                  previousState: from,
+                  source: 'CircuitBreakerResiliencePolicy',
+                ),
+              );
+            case CircuitState.halfOpen:
+              break; // no dedicated event for half-open transition
+          }
+        }),
+      );
     }
   }
 
@@ -122,6 +123,7 @@ final class CircuitBreakerResiliencePolicy extends ResiliencePolicy {
 
   final CircuitBreakerResultCondition? _shouldCount;
   final CircuitBreakerState _state;
+  final List<Subscription> _subscriptions = [];
 
   /// The current observable state of the circuit.
   CircuitState get circuitState => _state.state;
@@ -179,6 +181,17 @@ final class CircuitBreakerResiliencePolicy extends ResiliencePolicy {
 
   /// Manually resets the circuit to [CircuitState.closed].
   void reset() => _state.reset();
+
+  /// Removes all state-change listeners that were registered by this policy.
+  ///
+  /// Call this before discarding a policy instance to prevent listener
+  /// accumulation on the shared [CircuitBreakerState].
+  void dispose() {
+    for (final sub in _subscriptions) {
+      sub.cancel();
+    }
+    _subscriptions.clear();
+  }
 
   @override
   String toString() => 'CircuitBreakerResiliencePolicy('

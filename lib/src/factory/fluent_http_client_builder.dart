@@ -12,6 +12,7 @@ import '../observability/resilience_event_hub.dart';
 import '../pipeline/delegating_handler.dart';
 import '../policies/bulkhead_isolation_policy.dart';
 import '../policies/circuit_breaker_policy.dart';
+import '../policies/hedging_policy.dart';
 import '../resilience/backoff.dart';
 import '../resilience/bulkhead_isolation_resilience_policy.dart';
 import '../resilience/bulkhead_resilience_policy.dart';
@@ -277,6 +278,26 @@ final class FluentHttpClientBuilder {
   /// ```
   FluentHttpClientBuilder withLogging({Logger? logger}) =>
       _addStep((b) => b.withLogging(logger: logger));
+
+  /// Enables streaming mode: responses are returned without buffering the
+  /// body.  See [HttpClientBuilder.withStreamingMode] for full semantics.
+  FluentHttpClientBuilder withStreamingMode() =>
+      _addStep((b) => b.withStreamingMode());
+
+  /// Adds a `HedgingHandler` driven by [policy].
+  ///
+  /// Fires speculative concurrent requests to cut tail latency. See
+  /// [HttpClientBuilder.withHedging] for placement guidance and
+  /// idempotency requirements.
+  ///
+  /// ```dart
+  /// builder.withHedging(HedgingPolicy(
+  ///   hedgeAfter: Duration(milliseconds: 200),
+  ///   maxHedgedAttempts: 1,
+  /// ))
+  /// ```
+  FluentHttpClientBuilder withHedging(HedgingPolicy policy) =>
+      _addStep((b) => b.withHedging(policy));
 
   // ==========================================================================
   // Retry policies

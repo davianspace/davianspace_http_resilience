@@ -358,7 +358,7 @@ void main() {
       final response = await policy.execute(() async {
         calls++;
         return calls < 3
-            ? const HttpResponse(statusCode: 503)
+            ? HttpResponse(statusCode: 503)
             : HttpResponse.ok();
       });
       expect(response.statusCode, 200);
@@ -374,7 +374,7 @@ void main() {
       );
       final response = await policy.execute(() async {
         calls++;
-        return const HttpResponse(statusCode: 400); // not in list
+        return HttpResponse(statusCode: 400); // not in list
       });
       expect(response.statusCode, 400);
       expect(calls, 1);
@@ -518,7 +518,7 @@ void main() {
       final response = await p.execute(() async {
         calls++;
         return calls < 3
-            ? const HttpResponse(statusCode: 500)
+            ? HttpResponse(statusCode: 500)
             : HttpResponse.ok();
       });
       expect(response.isSuccess, isTrue);
@@ -615,7 +615,7 @@ void main() {
 
     test('custom shouldCount predicate is respected', () async {
       final registry = CircuitBreakerRegistry();
-      const sentinel = HttpResponse(statusCode: 418);
+      final sentinel = HttpResponse(statusCode: 418);
 
       var counted = 0;
       final policy = CircuitBreakerResiliencePolicy(
@@ -1580,7 +1580,7 @@ void main() {
       final response = await policy.execute(() async {
         calls++;
         return calls < 3
-            ? const HttpResponse(statusCode: 503)
+            ? HttpResponse(statusCode: 503)
             : HttpResponse.ok();
       });
       expect(response.statusCode, 200);

@@ -70,11 +70,13 @@ final class ResilienceConfig {
 @immutable
 final class RetryConfig {
   /// Creates a [RetryConfig].
+  ///
+  /// [maxRetries] must be non-negative.
   const RetryConfig({
     this.maxRetries = 3,
     this.retryForever = false,
     this.backoff,
-  });
+  }) : assert(maxRetries >= 0, 'maxRetries must be >= 0');
 
   /// Maximum number of additional attempts after the initial call.
   ///
@@ -99,7 +101,10 @@ final class RetryConfig {
 @immutable
 final class TimeoutConfig {
   /// Creates a [TimeoutConfig] with the given [seconds].
-  const TimeoutConfig({required this.seconds});
+  ///
+  /// [seconds] must be positive.
+  const TimeoutConfig({required this.seconds})
+      : assert(seconds > 0, 'seconds must be > 0');
 
   /// Timeout duration in whole seconds.
   final int seconds;
@@ -115,12 +120,17 @@ final class TimeoutConfig {
 @immutable
 final class CircuitBreakerConfig {
   /// Creates a [CircuitBreakerConfig].
+  ///
+  /// [failureThreshold] and [successThreshold] must be positive.
+  /// [breakSeconds] must be non-negative.
   const CircuitBreakerConfig({
     this.circuitName = 'default',
     this.failureThreshold = 5,
     this.successThreshold = 1,
     this.breakSeconds = 30,
-  });
+  })  : assert(failureThreshold > 0, 'failureThreshold must be > 0'),
+        assert(successThreshold > 0, 'successThreshold must be > 0'),
+        assert(breakSeconds >= 0, 'breakSeconds must be >= 0');
 
   /// Logical name of the circuit.  Circuits with the same name share state.
   final String circuitName;
@@ -149,11 +159,15 @@ final class CircuitBreakerConfig {
 @immutable
 final class BulkheadConfig {
   /// Creates a [BulkheadConfig].
+  ///
+  /// [maxConcurrency] must be positive. [maxQueueDepth] must be non-negative.
   const BulkheadConfig({
     required this.maxConcurrency,
     this.maxQueueDepth = 100,
     this.queueTimeoutSeconds = 10,
-  });
+  })  : assert(maxConcurrency >= 1, 'maxConcurrency must be >= 1'),
+        assert(maxQueueDepth >= 0, 'maxQueueDepth must be >= 0'),
+        assert(queueTimeoutSeconds >= 0, 'queueTimeoutSeconds must be >= 0');
 
   /// Maximum number of actions executing concurrently (must be ≥ 1).
   final int maxConcurrency;
@@ -178,11 +192,16 @@ final class BulkheadConfig {
 @immutable
 final class BulkheadIsolationConfig {
   /// Creates a [BulkheadIsolationConfig].
+  ///
+  /// [maxConcurrentRequests] must be positive. [maxQueueSize] must be
+  /// non-negative.
   const BulkheadIsolationConfig({
     this.maxConcurrentRequests = 10,
     this.maxQueueSize = 100,
     this.queueTimeoutSeconds = 10,
-  });
+  })  : assert(maxConcurrentRequests >= 1, 'maxConcurrentRequests must be >= 1'),
+        assert(maxQueueSize >= 0, 'maxQueueSize must be >= 0'),
+        assert(queueTimeoutSeconds >= 0, 'queueTimeoutSeconds must be >= 0');
 
   /// Maximum number of requests executing concurrently.
   final int maxConcurrentRequests;

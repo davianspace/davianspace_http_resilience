@@ -31,14 +31,30 @@ final class CancellationToken {
   ///
   /// All registered listeners are notified synchronously.
   /// Calling [cancel] more than once is a no-op.
+  ///
+  /// If a listener throws, remaining listeners are still notified. The first
+  /// exception is rethrown after all listeners have been called.
   void cancel([String? reason]) {
     if (_cancelled) return;
     _cancelled = true;
     _reason = reason;
+
+    Object? firstError;
+    StackTrace? firstStackTrace;
+
     for (final listener in _listeners) {
-      listener(_reason);
+      try {
+        listener(_reason);
+      } on Object catch (e, st) {
+        firstError ??= e;
+        firstStackTrace ??= st;
+      }
     }
     _listeners.clear();
+
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStackTrace!);
+    }
   }
 
   /// Registers a [listener] that is invoked when the token is cancelled.

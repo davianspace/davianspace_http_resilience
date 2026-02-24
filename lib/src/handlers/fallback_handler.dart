@@ -55,7 +55,7 @@ final class FallbackHandler extends DelegatingHandler {
       // 1. shouldHandle predicate (highest priority for response checks).
       if (predicate != null) {
         if (predicate(response, null, context)) {
-          _policy.onFallback?.call(context, null, null);
+          _notifyOnFallback(context, null, null);
           return await _policy.fallbackAction(context, null, null);
         }
         // Predicate present but returned false — do NOT also run classifier.
@@ -65,7 +65,7 @@ final class FallbackHandler extends DelegatingHandler {
       // 2. OutcomeClassifier fallback (only when shouldHandle is absent).
       final cl = _policy.classifier;
       if (cl != null && cl.classifyResponse(response).isFailure) {
-        _policy.onFallback?.call(context, null, null);
+        _notifyOnFallback(context, null, null);
         return await _policy.fallbackAction(context, null, null);
       }
 
@@ -80,8 +80,23 @@ final class FallbackHandler extends DelegatingHandler {
         Error.throwWithStackTrace(e, st);
       }
 
-      _policy.onFallback?.call(context, e, st);
+      _notifyOnFallback(context, e, st);
       return _policy.fallbackAction(context, e, st);
+    }
+  }
+
+  /// Safely invokes [FallbackPolicy.onFallback], swallowing errors so that a
+  /// misbehaving callback cannot prevent the fallback action from executing.
+  void _notifyOnFallback(
+    HttpContext context,
+    Object? error,
+    StackTrace? stackTrace,
+  ) {
+    try {
+      _policy.onFallback?.call(context, error, stackTrace);
+    } on Object catch (_) {
+      // Intentionally swallowed — onFallback is observational and must not
+      // prevent the fallback action from executing.
     }
   }
 

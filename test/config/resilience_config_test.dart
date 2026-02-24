@@ -265,8 +265,11 @@ void main() {
         ),
       );
       test(
-        'unknown type falls back to none',
-        () => expect(parseBackoff('unknown').type, BackoffType.none),
+        'unknown type throws FormatException',
+        () => expect(
+          () => parseBackoff('unknown'),
+          throwsFormatException,
+        ),
       );
     });
 

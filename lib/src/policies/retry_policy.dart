@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../core/cancellation_token.dart';
 import '../core/http_context.dart';
 import '../core/http_response.dart';
@@ -238,9 +240,7 @@ final class RetryPolicy {
 
   static Duration _noDelay(int _) => Duration.zero;
 
-  static double _random() {
-    // Cheap LCG pseudo-random for jitter — avoids dart:math import
-    final t = DateTime.now().microsecondsSinceEpoch;
-    return ((t * 1664525 + 1013904223) & 0x7FFFFFFF) / 0x7FFFFFFF;
-  }
+  static final math.Random _rng = math.Random();
+
+  static double _random() => _rng.nextDouble();
 }

@@ -50,7 +50,7 @@ void main() {
       final policy = RetryPolicy.constant(maxRetries: 2);
       final ctx = _makeContext();
       expect(
-        policy.shouldRetry(const HttpResponse(statusCode: 503), null, ctx),
+        policy.shouldRetry(HttpResponse(statusCode: 503), null, ctx),
         isTrue,
       );
     });

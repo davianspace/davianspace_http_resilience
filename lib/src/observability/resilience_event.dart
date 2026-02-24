@@ -18,16 +18,18 @@ import '../policies/circuit_breaker_policy.dart';
 ///
 /// ```dart
 /// hub.onAny((event) => switch (event) {
-///   RetryEvent e        => print('Retry ${e.attemptNumber}/${e.maxAttempts}'),
-///   CircuitOpenEvent e  => print('Circuit ${e.circuitName} opened'),
-///   CircuitCloseEvent e => print('Circuit ${e.circuitName} closed'),
-///   TimeoutEvent e      => print('Timed out after ${e.timeout.inMilliseconds}ms'),
-///   FallbackEvent e     => print('Fallback triggered: ${e.exception}'),
+///   RetryEvent e            => print('Retry ${e.attemptNumber}/${e.maxAttempts}'),
+///   CircuitOpenEvent e      => print('Circuit ${e.circuitName} opened'),
+///   CircuitCloseEvent e     => print('Circuit ${e.circuitName} closed'),
+///   TimeoutEvent e          => print('Timed out after ${e.timeout.inMilliseconds}ms'),
+///   FallbackEvent e         => print('Fallback triggered: ${e.exception}'),
 ///   BulkheadRejectedEvent e => print('Bulkhead rejected: ${e.reason}'),
+///   HedgingEvent e          => print('Hedge attempt #${e.attemptNumber} fired'),
+///   HedgingOutcomeEvent e   => print('Hedging winner: attempt #${e.winningAttempt}'),
 /// });
 /// ```
 sealed class ResilienceEvent {
-  ResilienceEvent({this.source = ''}) : timestamp = DateTime.now();
+  ResilienceEvent({this.source = ''}) : timestamp = DateTime.now().toUtc();
 
   /// UTC timestamp captured when this event was constructed.
   final DateTime timestamp;
@@ -314,5 +316,95 @@ final class BulkheadRejectedEvent extends ResilienceEvent {
       'maxConcurrency=$maxConcurrency, '
       'maxQueueDepth=$maxQueueDepth, '
       'reason=$reason, '
+      'source=$source)';
+}
+
+// ============================================================================
+// HedgingEvent
+// ============================================================================
+
+/// Emitted by `HedgingHandler` just before each **additional speculative
+/// concurrent request** is fired.
+///
+/// The first attempt (attempt 1) is fired silently without emitting an event.
+/// [HedgingEvent] is emitted for attempt 2, 3, … up to
+/// `HedgingPolicy.maxHedgedAttempts + 1`.
+///
+/// ```dart
+/// hub.on<HedgingEvent>((e) {
+///   metrics.increment('http.hedge.fired',
+///       tags: {'attempt': e.attemptNumber.toString()});
+/// });
+/// ```
+final class HedgingEvent extends ResilienceEvent {
+  /// Creates a [HedgingEvent].
+  ///
+  /// [attemptNumber] — 1-based index of the speculative attempt being fired
+  ///                   (always >= 2; attempt 1 is the initial request).
+  /// [hedgeAfter]    — the `HedgingPolicy.hedgeAfter` duration that elapsed
+  ///                   before this hedge was triggered.
+  HedgingEvent({
+    required this.attemptNumber,
+    required this.hedgeAfter,
+    super.source,
+  });
+
+  /// 1-based index of the speculative attempt that was just fired.
+  ///
+  /// A value of `2` means the first extra concurrent request was launched.
+  final int attemptNumber;
+
+  /// The `HedgingPolicy.hedgeAfter` duration that elapsed before this hedge.
+  final Duration hedgeAfter;
+
+  @override
+  String toString() => 'HedgingEvent('
+      'attempt=$attemptNumber, '
+      'hedgeAfter=${hedgeAfter.inMilliseconds}ms, '
+      'source=$source)';
+}
+
+// ============================================================================
+// HedgingOutcomeEvent
+// ============================================================================
+
+/// Emitted by `HedgingHandler` when a **winning** response is accepted from
+/// one of the concurrent speculative attempts.
+///
+/// A "winning" response satisfies `HedgingPolicy.shouldHedge == false` (or is
+/// a 2xx when no predicate is configured).
+///
+/// ```dart
+/// hub.on<HedgingOutcomeEvent>((e) {
+///   metrics.histogram('http.hedge.winning_attempt', e.winningAttempt,
+///       tags: {'total': e.totalAttempts.toString()});
+/// });
+/// ```
+final class HedgingOutcomeEvent extends ResilienceEvent {
+  /// Creates a [HedgingOutcomeEvent].
+  ///
+  /// [winningAttempt] — 1-based index of the attempt that supplied the
+  ///                    accepted response.
+  /// [totalAttempts]  — how many concurrent requests were in flight when the
+  ///                    winner was found.
+  HedgingOutcomeEvent({
+    required this.winningAttempt,
+    required this.totalAttempts,
+    super.source,
+  });
+
+  /// 1-based index of the attempt that delivered the winning response.
+  ///
+  /// A value of `1` means the original request won (the fastest path).
+  final int winningAttempt;
+
+  /// Total number of concurrent in-flight requests at the time the winner was
+  /// found, including the original request.
+  final int totalAttempts;
+
+  @override
+  String toString() => 'HedgingOutcomeEvent('
+      'winningAttempt=$winningAttempt, '
+      'totalAttempts=$totalAttempts, '
       'source=$source)';
 }

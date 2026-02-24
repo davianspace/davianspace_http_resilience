@@ -448,8 +448,8 @@ void main() {
       await expectLater(
         policy.execute<HttpResponse>(() async {
           callCount++;
-          if (callCount <= 2) return const HttpResponse(statusCode: 503);
-          return const HttpResponse(statusCode: 200);
+          if (callCount <= 2) return HttpResponse(statusCode: 503);
+          return HttpResponse(statusCode: 200);
         }),
         completion(
           isA<HttpResponse>().having((r) => r.statusCode, 'statusCode', 200),
@@ -466,7 +466,7 @@ void main() {
       );
       final result = await policy.execute<HttpResponse>(() async {
         callCount++;
-        return const HttpResponse(statusCode: 404);
+        return HttpResponse(statusCode: 404);
       });
       expect(result.statusCode, 404);
       expect(callCount, 1); // No retries — permanent failure.
@@ -498,7 +498,7 @@ void main() {
       await expectLater(
         policy.execute<HttpResponse>(() async {
           callCount++;
-          return const HttpResponse(statusCode: 503);
+          return HttpResponse(statusCode: 503);
         }),
         throwsA(isA<RetryExhaustedException>()),
       );
@@ -515,8 +515,8 @@ void main() {
       await expectLater(
         policy.execute<HttpResponse>(() async {
           callCount++;
-          if (callCount <= 2) return const HttpResponse(statusCode: 429);
-          return const HttpResponse(statusCode: 200);
+          if (callCount <= 2) return HttpResponse(statusCode: 429);
+          return HttpResponse(statusCode: 200);
         }),
         completion(
           isA<HttpResponse>().having((r) => r.statusCode, 'statusCode', 200),
@@ -551,8 +551,8 @@ void main() {
       );
       await policy.execute<HttpResponse>(() async {
         callCount++;
-        if (callCount <= 2) return const HttpResponse(statusCode: 500);
-        return const HttpResponse(statusCode: 200);
+        if (callCount <= 2) return HttpResponse(statusCode: 500);
+        return HttpResponse(statusCode: 200);
       });
       expect(callCount, 3);
     });
@@ -810,8 +810,8 @@ void main() {
 
       await policy.execute<HttpResponse>(() async {
         callCount++;
-        if (callCount <= 2) return const HttpResponse(statusCode: 500);
-        return const HttpResponse(statusCode: 200);
+        if (callCount <= 2) return HttpResponse(statusCode: 500);
+        return HttpResponse(statusCode: 200);
       });
       expect(callCount, 3);
     });

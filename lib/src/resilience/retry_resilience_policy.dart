@@ -432,7 +432,7 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
             continue;
           }
           // Retries exhausted on transient result.
-          lastException = result;
+          lastException = RetryExhaustedOnResultException(result);
           break;
         }
 
@@ -526,4 +526,21 @@ final class RetryResiliencePolicy extends ResiliencePolicy {
     final mode = retryForever ? 'forever' : 'maxRetries=$maxRetries';
     return 'RetryResiliencePolicy($mode, backoff=$backoff)';
   }
+}
+
+/// Internal exception wrapper used when retries are exhausted due to a
+/// classifier deeming an [HttpResponse] retryable (rather than a thrown
+/// exception).
+///
+/// This avoids storing an [HttpResponse] directly in the `cause` field of
+/// [RetryExhaustedException], which would create type confusion for callers
+/// that inspect `cause` expecting an exception.
+final class RetryExhaustedOnResultException implements Exception {
+  const RetryExhaustedOnResultException(this.lastResult);
+
+  /// The last response that was classified as retryable.
+  final Object lastResult;
+
+  @override
+  String toString() => 'RetryExhaustedOnResultException($lastResult)';
 }

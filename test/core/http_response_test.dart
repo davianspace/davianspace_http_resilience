@@ -4,28 +4,28 @@ import 'package:test/test.dart';
 void main() {
   group('HttpResponse', () {
     test('isSuccess for 2xx', () {
-      expect(const HttpResponse(statusCode: 200).isSuccess, isTrue);
-      expect(const HttpResponse(statusCode: 201).isSuccess, isTrue);
-      expect(const HttpResponse(statusCode: 299).isSuccess, isTrue);
+      expect(HttpResponse(statusCode: 200).isSuccess, isTrue);
+      expect(HttpResponse(statusCode: 201).isSuccess, isTrue);
+      expect(HttpResponse(statusCode: 299).isSuccess, isTrue);
     });
 
     test('isClientError for 4xx', () {
-      expect(const HttpResponse(statusCode: 400).isClientError, isTrue);
-      expect(const HttpResponse(statusCode: 404).isClientError, isTrue);
-      expect(const HttpResponse(statusCode: 499).isClientError, isTrue);
+      expect(HttpResponse(statusCode: 400).isClientError, isTrue);
+      expect(HttpResponse(statusCode: 404).isClientError, isTrue);
+      expect(HttpResponse(statusCode: 499).isClientError, isTrue);
     });
 
     test('isServerError for 5xx', () {
-      expect(const HttpResponse(statusCode: 500).isServerError, isTrue);
-      expect(const HttpResponse(statusCode: 503).isServerError, isTrue);
+      expect(HttpResponse(statusCode: 500).isServerError, isTrue);
+      expect(HttpResponse(statusCode: 503).isServerError, isTrue);
     });
 
     test('isRedirect for 3xx', () {
-      expect(const HttpResponse(statusCode: 301).isRedirect, isTrue);
+      expect(HttpResponse(statusCode: 301).isRedirect, isTrue);
     });
 
     test('copyWith preserves unchanged fields', () {
-      const original = HttpResponse(statusCode: 200, body: [1, 2]);
+      final original = HttpResponse(statusCode: 200, body: [1, 2]);
       final copy = original.copyWith(statusCode: 404);
       expect(copy.statusCode, 404);
       expect(copy.body, [1, 2]);
@@ -48,7 +48,7 @@ void main() {
     });
 
     test('bodyAsString returns empty for null body', () {
-      expect(const HttpResponse(statusCode: 204).bodyAsString, isEmpty);
+      expect(HttpResponse(statusCode: 204).bodyAsString, isEmpty);
     });
 
     test('ensureSuccess returns self for 2xx', () {
@@ -57,7 +57,7 @@ void main() {
     });
 
     test('ensureSuccess throws HttpStatusException for non-2xx', () {
-      const r = HttpResponse(statusCode: 404);
+      final r = HttpResponse(statusCode: 404);
       expect(r.ensureSuccess, throwsA(isA<HttpStatusException>()));
     });
   });

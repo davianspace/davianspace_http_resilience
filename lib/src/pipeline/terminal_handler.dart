@@ -15,6 +15,20 @@ import 'http_handler.dart';
 ///
 /// You should never place another handler after [TerminalHandler] in the chain.
 ///
+/// ### Streaming mode
+///
+/// By default the response body is eagerly buffered so that the body bytes are
+/// available as `List<int>` when [send] returns.
+///
+/// Set `streamingMode: true` to skip buffering.  The returned [HttpResponse]
+/// will have `isStreaming == true` and the bytes can be read via
+/// [HttpResponse.bodyStream].  The `duration` field reflects the
+/// time-to-first-byte (TTFB) rather than the full content-transfer time.
+///
+/// **Important:** streaming responses are incompatible with `RetryHandler` and
+/// `CircuitBreakerHandler` when those handlers need to inspect the body bytes.
+/// Use `response.toBuffered()` inside a custom handler when this matters.
+///
 /// > **Internal implementation detail.** Use `HttpClientFactory` /
 /// > `HttpClientBuilder` to build pipelines rather than creating
 /// > `TerminalHandler` instances directly.
@@ -22,9 +36,12 @@ import 'http_handler.dart';
 final class TerminalHandler extends HttpHandler {
   /// Creates a [TerminalHandler] backed by [client].
   ///
-  /// [client] — an optional [http.Client]; a new [http.Client] is created if
-  /// none is provided. Inject a mock client in tests.
-  TerminalHandler({http.Client? client})
+  /// [client]        — an optional [http.Client]; a new [http.Client] is
+  ///                   created if none is provided. Inject a mock client in
+  ///                   tests.
+  /// [streamingMode] — when `true`, the response body is returned as a
+  ///                   `Stream<List<int>>` without buffering.  Default: `false`.
+  TerminalHandler({http.Client? client, this.streamingMode = false})
       : _client = client ?? http.Client(),
         _ownsClient = client == null;
 
@@ -36,6 +53,10 @@ final class TerminalHandler extends HttpHandler {
   /// remain the caller's responsibility.
   final bool _ownsClient;
 
+  /// When `true`, the response body is not buffered — it is exposed as a
+  /// `Stream<List<int>>` via [HttpResponse.bodyStream].
+  final bool streamingMode;
+
   @override
   Future<HttpResponse> send(HttpContext context) async {
     context.throwIfCancelled();
@@ -45,6 +66,18 @@ final class TerminalHandler extends HttpHandler {
 
     try {
       final streamed = await _client.send(req);
+
+      if (streamingMode) {
+        // Return immediately after receiving headers / first byte.
+        stopwatch.stop();
+        return HttpResponse.streaming(
+          statusCode: streamed.statusCode,
+          headers: Map<String, String>.from(streamed.headers),
+          bodyStream: streamed.stream,
+          duration: stopwatch.elapsed,
+        );
+      }
+
       final bodyBytes = await streamed.stream.toBytes();
       stopwatch.stop();
 

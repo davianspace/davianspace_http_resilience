@@ -130,7 +130,7 @@ final class LoggingHandler extends DelegatingHandler {
             'method': req.method.value,
             'uri': uriLabel,
             'durationMs': stopwatch.elapsedMilliseconds,
-            'error': e.toString(),
+            'error': _sanitizeError(e),
           }),
           e,
           st,
@@ -151,5 +151,14 @@ final class LoggingHandler extends DelegatingHandler {
     if (statusCode >= 500) return Level.SEVERE;
     if (statusCode >= 400) return Level.WARNING;
     return Level.INFO;
+  }
+
+  /// Truncates the error description to prevent PII / large stack traces from
+  /// being serialised into structured log output.
+  static String _sanitizeError(Object error) {
+    final s = error.runtimeType.toString();
+    final msg = error.toString();
+    // Limit to 256 chars — enough for diagnosis without leaking large bodies.
+    return msg.length <= 256 ? '$s: $msg' : '$s: ${msg.substring(0, 256)}…';
   }
 }

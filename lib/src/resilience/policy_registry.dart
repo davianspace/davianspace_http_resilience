@@ -221,7 +221,7 @@ final class PolicyRegistry {
   /// Returns the policy registered under [name], coerced to [T].
   ///
   /// Throws [StateError] if [name] is not registered.
-  /// Throws [TypeError] if the registered policy is not a [T].
+  /// Throws [StateError] if the registered policy is not a [T].
   ///
   /// ```dart
   /// final retry = registry.get<RetryResiliencePolicy>('standard-retry');
@@ -240,7 +240,10 @@ final class PolicyRegistry {
       );
     }
     if (policy is! T) {
-      throw TypeError();
+      throw StateError(
+        'PolicyRegistry: expected $T for "$name", '
+        'found ${policy.runtimeType}.',
+      );
     }
     return policy;
   }

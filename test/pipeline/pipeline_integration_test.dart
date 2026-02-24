@@ -152,7 +152,7 @@ void main() {
         FallbackPolicy(
           fallbackAction: (_, __, ___) async {
             fallbackCalls++;
-            return const HttpResponse(statusCode: 200);
+            return HttpResponse(statusCode: 200);
           },
           // null shouldHandle → catches all exceptions
         ),
@@ -270,7 +270,7 @@ void main() {
 
   group('HttpStatusException extends HttpResilienceException', () {
     test('ensureSuccess throws HttpStatusException for non-2xx', () {
-      const response = HttpResponse(statusCode: 404);
+      final response = HttpResponse(statusCode: 404);
       expect(
         response.ensureSuccess,
         throwsA(isA<HttpStatusException>()),
@@ -278,7 +278,7 @@ void main() {
     });
 
     test('HttpStatusException is also an HttpResilienceException', () {
-      const response = HttpResponse(statusCode: 503);
+      final response = HttpResponse(statusCode: 503);
       expect(
         response.ensureSuccess,
         throwsA(isA<HttpResilienceException>()),

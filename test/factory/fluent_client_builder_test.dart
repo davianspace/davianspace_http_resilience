@@ -467,7 +467,7 @@ void main() {
       final client = FluentHttpClientBuilder()
           .addFallbackPolicy(
             fallbackAction: (_, __) async =>
-                const HttpResponse(statusCode: 200, body: []),
+                HttpResponse(statusCode: 200, body: []),
             onFallback: (ex, _) => capturedEx = ex,
           )
           .withHttpClient(_throwingClient(Exception('trigger')))
@@ -755,7 +755,7 @@ void main() {
           .addCircuitBreakerPolicy(circuitName: 'svc')
           .addFallbackPolicy(
             fallbackAction: (_, __) async =>
-                const HttpResponse(statusCode: 200, body: []),
+                HttpResponse(statusCode: 200, body: []),
           );
       expect(b.stepCount, 4);
     });

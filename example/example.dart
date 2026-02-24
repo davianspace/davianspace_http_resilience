@@ -177,15 +177,15 @@ void _example5RetryPredicates() {
 
   print(
     '  Should retry 503: '
-    '${predicate(const HttpResponse(statusCode: 503), null, ctx)}',
+    '${predicate(HttpResponse(statusCode: 503), null, ctx)}',
   );
   print(
     '  Should retry 429: '
-    '${predicate(const HttpResponse(statusCode: 429), null, ctx)}',
+    '${predicate(HttpResponse(statusCode: 429), null, ctx)}',
   );
   print(
     '  Should retry 404: '
-    '${predicate(const HttpResponse(statusCode: 404), null, ctx)}',
+    '${predicate(HttpResponse(statusCode: 404), null, ctx)}',
   );
   print(
     '  Should retry exception: '
