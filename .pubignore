@@ -1,0 +1,34 @@
+# .pubignore — controls what is excluded from the pub.dev package archive.
+#
+# pub uses this file in preference to .gitignore when it is present.
+# List anything that should NOT be shipped to consumers of this package.
+#
+# See: https://dart.dev/tools/pub/publishing#what-files-are-published
+
+# Dart tooling cache (generated, machine-specific)
+.dart_tool/
+
+# Lock file — library packages must not pin transitive dependencies for consumers
+pubspec.lock
+
+# Build artifacts
+build/
+coverage/
+
+# IDE / editor project files
+.idea/
+.vscode/
+*.iml
+
+# OS noise
+.DS_Store
+Thumbs.db
+*.swp
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+*.tmp
