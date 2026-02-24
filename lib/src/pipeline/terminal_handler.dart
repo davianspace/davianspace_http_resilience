@@ -1,5 +1,4 @@
 import 'package:http/http.dart' as http;
-import 'package:meta/meta.dart';
 
 import '../core/http_context.dart';
 import '../core/http_request.dart';
@@ -44,7 +43,6 @@ import 'http_handler.dart';
 /// > **Internal implementation detail.** Use `HttpClientFactory` /
 /// > `HttpClientBuilder` to build pipelines rather than creating
 /// > `TerminalHandler` instances directly.
-@internal
 final class TerminalHandler extends HttpHandler {
   /// Creates a [TerminalHandler] backed by [client].
   ///

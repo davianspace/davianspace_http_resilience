@@ -1,13 +1,6 @@
 name: davianspace_http_resilience
-description: >
-  A production-grade Dart/Flutter HTTP resilience package inspired by
-  Microsoft.Extensions.Http.Resilience and Polly. Provides a composable
-  middleware pipeline with seven resilience policies (retry, circuit breaker,
-  timeout, bulkhead, bulkhead isolation, hedging, fallback), structured
-  observability, configuration-driven setup, header-redacted security logging,
-  and deterministic resource lifecycle — all with zero reflection, strict
-  null-safety, and clean-architecture layering.
-version: 1.0.1
+description: Production-grade HTTP resilience for Dart & Flutter. Retry, circuit breaker, timeout, bulkhead, hedging, fallback, structured observability, and header-redacted logging.
+version: 1.0.2
 homepage: https://github.com/davianspace/davianspace_http_resilience
 repository: https://github.com/davianspace/davianspace_http_resilience
 issue_tracker: https://github.com/davianspace/davianspace_http_resilience/issues

@@ -334,7 +334,7 @@ pipeline.dispose(); // disposes timeout + circuit breaker + retry
   sensitivity to system clock skew or NTP adjustments.
 - **Timestamps**: `_openedAt` and `_lastTransitionAt` use `DateTime.now().toUtc()`
   for consistent cross-timezone serialisation in diagnostics.
-- **Registry**: `CircuitBreakerRegistry` provides `isHealthy()`, `snapshot()`,
+- **Registry**: `CircuitBreakerRegistry` provides `isHealthy`, `snapshot`,
   `contains()`, `circuitNames`, and `[]` operator for production monitoring
   and health-check endpoints.
 - **Shared State**: Circuits with the same `circuitName` share state across
@@ -447,14 +447,20 @@ from disrupting the pipeline.
 ```dart
 final registry = CircuitBreakerRegistry.instance;
 
-// Single circuit
-registry.isHealthy('payments');   // true if Closed
-registry.snapshot('payments');     // CircuitBreakerSnapshot (state, counters, timestamps)
+// All circuits healthy (bool getter — empty registry is considered healthy)
+registry.isHealthy;                               // true if ALL circuits are Closed
 
-// All circuits
-registry.circuitNames;            // Iterable<String>
-registry.contains('payments');    // bool
-registry['payments'];             // CircuitBreakerState (operator [])
+// Point-in-time state map for every registered circuit
+final snap = registry.snapshot;                  // Map<String, CircuitState>
+for (final e in snap.entries) {
+  print('${e.key}: ${e.value}');                 // e.g. "payments: CircuitState.closed"
+}
+
+// Per-circuit access
+registry.circuitNames;                           // Iterable<String>
+registry.contains('payments');                   // bool
+registry['payments'];                            // CircuitBreakerState? (operator [])
+registry['payments']?.state;                     // CircuitState? for one circuit
 ```
 
 ---

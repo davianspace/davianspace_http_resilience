@@ -19,6 +19,7 @@ import 'package:logging/logging.dart';
 ///  7. Per-request streaming override
 ///  8. Circuit breaker health monitoring
 ///  9. Header-redacted security logging
+///  10. Rate limiter integration (davianspace_http_ratelimit companion)
 ///
 /// Run with:
 ///   dart run example/example.dart
@@ -39,6 +40,7 @@ void main() async {
   _example7PerRequestStreaming();
   _example8CircuitBreakerHealth();
   _example9HeaderRedaction();
+  _example10RateLimiterIntegration();
   print('\nAll examples completed.');
 }
 
@@ -357,6 +359,57 @@ void _example9HeaderRedaction() {
   print('      logHeaders: true,');
   print("      redactedHeaders: {'authorization', 'x-custom-secret'},");
   print('    )');
+}
+
+// ─────────────────────────────────────────────────────────────
+// 10. Rate limiter integration (davianspace_http_ratelimit companion)
+// ─────────────────────────────────────────────────────────────
+
+/// Shows how to add client-side rate limiting to any [HttpClientBuilder]
+/// pipeline using the companion package.
+///
+/// The companion package ships a `HttpClientBuilderRateLimitExtension` that
+/// adds `.withRateLimit(RateLimitPolicy)` directly to [HttpClientBuilder],
+/// so all six rate-limiting algorithms slot seamlessly into the fluent API.
+void _example10RateLimiterIntegration() {
+  print('\n[Example 10] Rate limiter integration');
+  print('  Companion package: davianspace_http_ratelimit ^1.0.0');
+  print('');
+  print('  pubspec.yaml:');
+  print('    dependencies:');
+  print('      davianspace_http_resilience: ^1.0.2');
+  print('      davianspace_http_ratelimit:  ^1.0.0');
+  print('');
+  print('  Token Bucket — burst up to 200, sustain 100 req/s:');
+  print("    final client = HttpClientBuilder('my-api')");
+  print("        .withBaseUri(Uri.parse('https://api.example.com'))");
+  print(
+    '        .withLogging()                 // logs first (captures full picture)',
+  );
+  print(
+    '        .withRateLimit(RateLimitPolicy(  // \u2190 extension from companion package',
+  );
+  print('          limiter: TokenBucketRateLimiter(');
+  print('            capacity: 200,');
+  print('            refillAmount: 100,');
+  print('            refillInterval: Duration(seconds: 1),');
+  print('          ),');
+  print('          acquireTimeout: Duration(milliseconds: 500),');
+  print('          respectServerHeaders: true,');
+  print('        ))');
+  print(
+    '        .withRetry(RetryPolicy.exponential(maxRetries: 3))  // retried reqs also rate-limited',
+  );
+  print(
+    '        .withCircuitBreaker(CircuitBreakerPolicy(circuitName: \'api\'))',
+  );
+  print('        .build();');
+  print('');
+  print('  On exhaustion: RateLimitExceededException is thrown.');
+  print('  Six algorithms: TokenBucket, FixedWindow, SlidingWindow,');
+  print('                  SlidingWindowLog, LeakyBucket, ConcurrencyLimiter.');
+  print('  For runnable examples of each algorithm, see:');
+  print('    davianspace_http_ratelimit/example/example.dart');
 }
 
 // ─────────────────────────────────────────────────────────────

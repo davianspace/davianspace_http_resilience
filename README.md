@@ -43,6 +43,7 @@ with zero reflection and strict null-safety.
   - [Observability & Events](#observability--events)
   - [Health Checks & Monitoring](#health-checks--monitoring)
   - [Header Redaction (Security Logging)](#header-redaction-security-logging)
+  - [Rate Limiter Integration](#rate-limiter-integration)
 - [Lifecycle & Disposal](#lifecycle--disposal)
 - [Testing](#testing)
 - [API Reference](#api-reference)
@@ -119,11 +120,25 @@ with zero reflection and strict null-safety.
 
 ```yaml
 dependencies:
-  davianspace_http_resilience: ^1.0.1
+  davianspace_http_resilience: ^1.0.2
 ```
 
 ```bash
 dart pub get
+```
+
+### Companion Packages
+
+| Package | Purpose |
+|---------|---------|
+| [`davianspace_http_ratelimit`](https://pub.dev/packages/davianspace_http_ratelimit) | Adds `withRateLimit()` to `HttpClientBuilder`; six rate-limiting algorithms + server-side admission control |
+
+Add both packages to use rate limiting:
+
+```yaml
+dependencies:
+  davianspace_http_resilience: ^1.0.2
+  davianspace_http_ratelimit:  ^1.0.0
 ```
 
 ---
@@ -610,21 +625,28 @@ hub.stream.listen((event) {
 Use `CircuitBreakerRegistry` for readiness/liveness probes:
 
 ```dart
-// Check circuit health
 final registry = CircuitBreakerRegistry.instance;
-final isHealthy = registry.isHealthy('payments');
-final snapshot  = registry.snapshot('payments');
 
-// List all registered circuits
-final names = registry.circuitNames;
+// Overall health of all circuits (bool getter)
+final allHealthy = registry.isHealthy;          // true when ALL circuits are Closed
+
+// Point-in-time state for each circuit
+final snap = registry.snapshot;                 // Map<String, CircuitState>
+for (final e in snap.entries) {
+  print('${e.key}: ${e.value}');                // e.g. "payments: CircuitState.closed"
+}
+
+// Per-circuit access
+final names   = registry.circuitNames;          // Iterable<String>
+final hasSvc  = registry.contains('payments'); // bool
+final state   = registry['payments']?.state;   // CircuitState? for one circuit
 
 // Expose in a health endpoint
 app.get('/health', (req, res) {
-  final circuits = {
-    for (final name in registry.circuitNames)
-      name: registry.isHealthy(name),
-  };
-  final healthy = circuits.values.every((v) => v);
+  final circuits = registry.snapshot.map(
+    (name, state) => MapEntry(name, state == CircuitState.closed),
+  );
+  final healthy = registry.isHealthy;
   res.statusCode = healthy ? 200 : 503;
   res.json({'status': healthy ? 'healthy' : 'degraded', 'circuits': circuits});
 });
@@ -649,6 +671,65 @@ final client = HttpClientBuilder('secure-api')
     .withRetry(RetryPolicy.exponential(maxRetries: 3))
     .build();
 ```
+
+### Rate Limiter Integration
+
+The companion package [`davianspace_http_ratelimit`](https://pub.dev/packages/davianspace_http_ratelimit)
+extends `HttpClientBuilder` with a `.withRateLimit()` method that supports six
+algorithms. Import both packages:
+
+```yaml
+dependencies:
+  davianspace_http_resilience: ^1.0.2
+  davianspace_http_ratelimit:  ^1.0.0
+```
+
+```dart
+import 'package:davianspace_http_resilience/davianspace_http_resilience.dart';
+import 'package:davianspace_http_ratelimit/davianspace_http_ratelimit.dart';
+
+// Token Bucket — burst up to 200, sustain 100 req/s
+final client = HttpClientBuilder('my-api')
+    .withBaseUri(Uri.parse('https://api.example.com'))
+    .withLogging()
+    .withRateLimit(RateLimitPolicy(
+      limiter: TokenBucketRateLimiter(
+        capacity: 200,
+        refillAmount: 100,
+        refillInterval: Duration(seconds: 1),
+      ),
+      acquireTimeout: Duration(milliseconds: 500),
+      respectServerHeaders: true,         // parses X-RateLimit-* response headers
+      onRejected: (ctx, e) => log.warning('Rate limited: $e'),
+    ))
+    .withRetry(RetryPolicy.exponential(maxRetries: 3)) // retried calls also throttled
+    .withCircuitBreaker(CircuitBreakerPolicy(circuitName: 'api'))
+    .build();
+
+try {
+  final response = await client.get(Uri.parse('/v1/items'));
+  print(response.bodyAsString);
+} on RateLimitExceededException catch (e) {
+  print('Rate limited: ${e.retryAfter}');
+} finally {
+  client.dispose();
+}
+```
+
+**Six available algorithms:**
+
+| Class | Algorithm | Memory | Burst |
+|-------|-----------|--------|-------|
+| `TokenBucketRateLimiter` | Token Bucket | O(1) | ✅ FIFO queue |
+| `FixedWindowRateLimiter` | Fixed Window | O(1) | ⚠️ edge burst |
+| `SlidingWindowRateLimiter` | Sliding Window Counter | O(1) | ✅ approximate |
+| `SlidingWindowLogRateLimiter` | Sliding Window Log | O(n) | ✅ exact |
+| `LeakyBucketRateLimiter` | Leaky Bucket | O(cap) | ✅ constant output |
+| `ConcurrencyLimiter` | Semaphore | O(1) | ✅ FIFO queue |
+
+> Server-side per-key admission control is also available via `ServerRateLimiter`.
+> See the [companion package README](https://pub.dev/packages/davianspace_http_ratelimit)
+> for full documentation.
 
 ---
 
@@ -791,6 +872,21 @@ The test suite covers:
 ---
 
 ## Migration Guide
+
+### From 1.0.1 → 1.0.2
+
+**No breaking changes.** Version 1.0.2 is fully backward-compatible.
+
+New features available after upgrading:
+
+1. **Rate limiter companion package** — `davianspace_http_ratelimit` v1.0.0 adds
+   `withRateLimit(RateLimitPolicy)` to the `HttpClientBuilder` fluent API via an
+   extension. Six algorithms are available: Token Bucket, Fixed Window, Sliding
+   Window (counter), Sliding Window Log, Leaky Bucket, and Concurrency Limiter.
+   Server-side per-key admission control (`ServerRateLimiter`) is also included.
+   Add `davianspace_http_ratelimit: ^1.0.0` to your `pubspec.yaml` to opt in.
+
+---
 
 ### From 1.0.0 → 1.0.1
 

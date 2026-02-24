@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.2] — 2026-02-25
+
+### Added
+
+- **Rate limiter integration** — companion package `davianspace_http_ratelimit`
+  v1.0.0 published. Adds `withRateLimit(RateLimitPolicy)` as a fluent extension
+  on `HttpClientBuilder`, supporting six algorithms: Token Bucket, Fixed Window,
+  Sliding Window (counter), Sliding Window Log, Leaky Bucket, and Concurrency
+  Limiter. Server-side per-key admission control (`ServerRateLimiter`) is also
+  included. Import `package:davianspace_http_ratelimit/davianspace_http_ratelimit.dart`
+  alongside this package to unlock the integration.
+- **Example 10** — `example/example.dart` gains a rate limiter integration
+  example demonstrating `TokenBucketRateLimiter`, `FixedWindowRateLimiter`, and
+  the recommended pipeline placement of `withRateLimit`.
+
+### Fixed
+
+- **`TerminalHandler` false-positive analyzer warnings** — removed the redundant
+  `@internal` annotation (and unused `package:meta` import) from `TerminalHandler`.
+  The class is already hidden from public consumers via `hide TerminalHandler` in
+  the main barrel; the annotation caused spurious
+  `invalid_use_of_internal_member` warnings for in-package callers in
+  `HttpPipeline`, `HttpPipelineBuilder`, and the test helper.
+- **`doc/architecture.md` — `CircuitBreakerRegistry` API references** corrected:
+  `isHealthy` and `snapshot` are read-only getters (not parameterised methods);
+  the snippet now correctly shows `registry.isHealthy` (bool), `registry.snapshot`
+  (`Map<String, CircuitState>`), and per-circuit access via `registry['name']`.
+- **`README.md` — Health Checks & Monitoring** code example corrected to match
+  the real `CircuitBreakerRegistry` getter API.
+- **`pubspec.yaml` description** improved to mention all seven resilience policies
+  within pub.dev's 180-character limit.
+
+---
+
 ## [1.0.1] — 2026-02-24
 
 ### Added
