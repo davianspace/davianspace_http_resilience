@@ -345,20 +345,54 @@ void _example8CircuitBreakerHealth() {
 // ─────────────────────────────────────────────────────────────
 
 void _example9HeaderRedaction() {
-  print('\n[Example 9] Header redaction in logging');
+  print('\n[Example 9] Header redaction in structured logging');
 
-  // Demonstrate that LoggingHandler can be configured with custom redaction
-  print('  → Default redacted headers:');
-  print('    - authorization');
-  print('    - proxy-authorization');
-  print('    - cookie');
-  print('    - set-cookie');
-  print('    - x-api-key');
-  print('  → Custom redacted headers can be added via the constructor:');
-  print('    LoggingHandler(');
-  print('      logHeaders: true,');
-  print("      redactedHeaders: {'authorization', 'x-custom-secret'},");
-  print('    )');
+  // Build a LoggingHandler that emits structured JSON and redacts sensitive
+  // headers.  The default redaction set covers Authorization, Cookie,
+  // Set-Cookie, Proxy-Authorization, and X-Api-Key.  Supply a custom set to
+  // add or narrow that list.
+  final defaultHandler = LoggingHandler(
+    structured: true,
+    logHeaders: true,
+    // Default redaction set: authorization, cookie, set-cookie,
+    // proxy-authorization, x-api-key.
+  );
+
+  final restrictedHandler = LoggingHandler(
+    structured: true,
+    logHeaders: true,
+    // Organisation-specific additions on top of the defaults.
+    redactedHeaders: const {
+      'authorization',
+      'cookie',
+      'x-api-key',
+      'x-internal-token',
+      'x-impersonation-user',
+    },
+    uriSanitizer: (uri) {
+      // Strip both query params and the fragment before logging.
+      return uri.replace(queryParameters: const {}, fragment: '').toString();
+    },
+  );
+
+  // Integrate into the builder pipeline with addHandler().
+  final client = HttpClientBuilder()
+      .withBaseUri(Uri.parse('https://api.example.com'))
+      .addHandler(defaultHandler)
+      .build();
+
+  final restrictedClient = HttpClientBuilder()
+      .withBaseUri(Uri.parse('https://internal.api.example.com'))
+      .addHandler(restrictedHandler)
+      .build();
+
+  print('  Default handler — redacts: authorization, cookie, set-cookie,'
+      ' proxy-authorization, x-api-key');
+  print('  Default client ready    : ${client.runtimeType}');
+  print('  Restricted client ready : ${restrictedClient.runtimeType}');
+
+  client.dispose();
+  restrictedClient.dispose();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -373,43 +407,53 @@ void _example9HeaderRedaction() {
 /// so all six rate-limiting algorithms slot seamlessly into the fluent API.
 void _example10RateLimiterIntegration() {
   print('\n[Example 10] Rate limiter integration');
-  print('  Companion package: davianspace_http_ratelimit ^1.0.0');
-  print('');
-  print('  pubspec.yaml:');
-  print('    dependencies:');
-  print('      davianspace_http_resilience: ^1.0.2');
-  print('      davianspace_http_ratelimit:  ^1.0.0');
-  print('');
-  print('  Token Bucket — burst up to 200, sustain 100 req/s:');
-  print("    final client = HttpClientBuilder('my-api')");
-  print("        .withBaseUri(Uri.parse('https://api.example.com'))");
-  print(
-    '        .withLogging()                 // logs first (captures full picture)',
-  );
-  print(
-    '        .withRateLimit(RateLimitPolicy(  // \u2190 extension from companion package',
-  );
-  print('          limiter: TokenBucketRateLimiter(');
-  print('            capacity: 200,');
-  print('            refillAmount: 100,');
-  print('            refillInterval: Duration(seconds: 1),');
-  print('          ),');
-  print('          acquireTimeout: Duration(milliseconds: 500),');
-  print('          respectServerHeaders: true,');
-  print('        ))');
-  print(
-    '        .withRetry(RetryPolicy.exponential(maxRetries: 3))  // retried reqs also rate-limited',
-  );
-  print(
-    '        .withCircuitBreaker(CircuitBreakerPolicy(circuitName: \'api\'))',
-  );
-  print('        .build();');
-  print('');
-  print('  On exhaustion: RateLimitExceededException is thrown.');
-  print('  Six algorithms: TokenBucket, FixedWindow, SlidingWindow,');
-  print('                  SlidingWindowLog, LeakyBucket, ConcurrencyLimiter.');
-  print('  For runnable examples of each algorithm, see:');
-  print('    davianspace_http_ratelimit/example/example.dart');
+
+  // This example shows the resilience-only pipeline that anchors into a full
+  // retry + circuit-breaker chain.  Add davianspace_http_ratelimit to pubspec
+  // and call .withRateLimit(policy) between .withLogging() and .withRetry()
+  // to cap outbound throughput before resilience policies fire.
+  //
+  // pubspec.yaml:
+  //   dependencies:
+  //     davianspace_http_resilience: ^1.0.2
+  //     davianspace_http_ratelimit:  ^1.0.0
+  //
+  // Full pipeline with rate limiting (token bucket — 100 req/s, burst 200):
+  //
+  //   final client = HttpClientBuilder('my-api')
+  //       .withBaseUri(Uri.parse('https://api.example.com'))
+  //       .withLogging()
+  //       .withRateLimit(RateLimitPolicy(        // ← companion extension
+  //         limiter: TokenBucketRateLimiter(
+  //           capacity: 200,
+  //           refillAmount: 100,
+  //           refillInterval: Duration(seconds: 1),
+  //         ),
+  //         acquireTimeout: Duration(milliseconds: 500),
+  //         respectServerHeaders: true,
+  //         onRejected: (ctx, e) => log.warning('rate-limited: $e'),
+  //       ))
+  //       .withRetry(RetryPolicy.exponential(maxRetries: 3))
+  //       .withCircuitBreaker(const CircuitBreakerPolicy(circuitName: 'my-api'))
+  //       .build();
+  //
+  // Policy order matters: logging captures the full picture first, rate
+  // limiting gates throughput, then retry handles transient failures, and
+  // the circuit breaker trips on sustained error rates.
+
+  // Build the resilience-only portion to confirm it compiles independently.
+  final baseClient = HttpClientBuilder()
+      .withBaseUri(Uri.parse('https://api.example.com'))
+      .withLogging()
+      .withRetry(RetryPolicy.exponential(maxRetries: 3))
+      .withCircuitBreaker(const CircuitBreakerPolicy(circuitName: 'my-api'))
+      .build();
+
+  print('  Resilience-only pipeline built: ${baseClient.runtimeType}');
+  print('  Add davianspace_http_ratelimit and insert .withRateLimit() after'
+      ' .withLogging() to gate outbound throughput.');
+
+  baseClient.dispose();
 }
 
 // ─────────────────────────────────────────────────────────────
