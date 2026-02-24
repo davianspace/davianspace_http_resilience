@@ -1,0 +1,55 @@
+# -----------------------------
+# Dart / Flutter / pub.dev
+# -----------------------------
+
+# Build & generated files
+build/
+.dart_tool/
+.packages
+.pub/
+.pub-cache/
+.pub-cache/
+pubspec.lock
+
+# Coverage
+coverage/
+
+# Logs
+*.log
+
+# IDE / Editor files
+.idea/
+.vscode/
+*.iml
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Linux
+*.swp
+
+# -----------------------------
+# Flutter specific (if example app exists)
+# -----------------------------
+**/android/.gradle
+**/android/app/build/
+**/ios/Flutter/.last_build_id
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+
+# -----------------------------
+# Testing / temp files
+# -----------------------------
+test_driver/screenshots/
+*.tmp
+
+# -----------------------------
+# Environment files
+# -----------------------------
+.env
+.env.*
