@@ -106,6 +106,8 @@
 /// | [`TimeoutEvent`]            | Emitted when a timeout occurs |
 /// | [`FallbackEvent`]           | Emitted when a fallback triggers |
 /// | [`BulkheadRejectedEvent`]   | Emitted when bulkhead rejects a request |
+
+// ignore: unnecessary_library_name
 library davianspace_http_resilience;
 
 // Core
