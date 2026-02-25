@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:logging/logging.dart';
+import 'package:davianspace_logging/davianspace_logging.dart';
 
 import '../core/http_context.dart';
 import '../core/http_response.dart';
@@ -14,12 +14,12 @@ import '../pipeline/delegating_handler.dart';
 ///
 /// | Condition                   | Level   |
 /// |-----------------------------|---------|
-/// | Request sent                | [Level.INFO]  |
-/// | Successful response (2xx)   | [Level.INFO]  |
-/// | Redirect (3xx)              | [Level.INFO]  |
-/// | Client error (4xx)          | [Level.WARNING] |
-/// | Server error (5xx)          | [Level.SEVERE] |
-/// | Unhandled exception         | [Level.SEVERE] |
+/// | Request sent                | [LogLevel.info]  |
+/// | Successful response (2xx)   | [LogLevel.info]  |
+/// | Redirect (3xx)              | [LogLevel.info]  |
+/// | Client error (4xx)          | [LogLevel.warning] |
+/// | Server error (5xx)          | [LogLevel.error] |
+/// | Unhandled exception         | [LogLevel.error] |
 ///
 /// ### URI sanitization
 ///
@@ -74,7 +74,7 @@ final class LoggingHandler extends DelegatingHandler {
     bool structured = false,
     Set<String>? redactedHeaders,
     bool logHeaders = false,
-  })  : _logger = logger ?? Logger('davianspace.http'),
+  })  : _logger = logger ?? const NullLogger('davianspace.http'),
         _uriSanitizer = uriSanitizer ?? _defaultSanitizer,
         _structured = structured,
         _redactedHeaders = redactedHeaders ?? _defaultRedactedHeaders,
@@ -148,7 +148,7 @@ final class LoggingHandler extends DelegatingHandler {
     } catch (e, st) {
       stopwatch.stop();
       if (_structured) {
-        _logger.severe(
+        _logger.error(
           jsonEncode({
             'event': 'error',
             'method': req.method.value,
@@ -156,25 +156,25 @@ final class LoggingHandler extends DelegatingHandler {
             'durationMs': stopwatch.elapsedMilliseconds,
             'error': _sanitizeError(e),
           }),
-          e,
-          st,
+          error: e,
+          stackTrace: st,
         );
       } else {
-        _logger.severe(
+        _logger.error(
           '✗ ${req.method.value} $uriLabel threw after '
           '${stopwatch.elapsedMilliseconds}ms: $e',
-          e,
-          st,
+          error: e,
+          stackTrace: st,
         );
       }
       rethrow;
     }
   }
 
-  Level _levelFor(int statusCode) {
-    if (statusCode >= 500) return Level.SEVERE;
-    if (statusCode >= 400) return Level.WARNING;
-    return Level.INFO;
+  LogLevel _levelFor(int statusCode) {
+    if (statusCode >= 500) return LogLevel.error;
+    if (statusCode >= 400) return LogLevel.warning;
+    return LogLevel.info;
   }
 
   /// Truncates the error description to prevent PII / large stack traces from

@@ -2,7 +2,7 @@
 import 'dart:convert';
 
 import 'package:davianspace_http_resilience/davianspace_http_resilience.dart';
-import 'package:logging/logging.dart';
+import 'package:davianspace_logging/davianspace_logging.dart';
 
 /// ============================================================
 /// davianspace_http_resilience — Production Usage Examples
@@ -27,6 +27,8 @@ import 'package:logging/logging.dart';
 
 // Module-level factory instance for Example 2 (named-client registry pattern).
 final _factory = HttpClientFactory();
+// Module-level logger factory for structured HTTP logging.
+late LoggerFactory _logFactory;
 
 void main() async {
   _configureLogging();
@@ -54,7 +56,7 @@ Future<void> _example1BasicClient() async {
   final client = HttpClientBuilder('jsonplaceholder')
       .withBaseUri(Uri.parse('https://jsonplaceholder.typicode.com'))
       .withDefaultHeader('Accept', 'application/json')
-      .withLogging()
+      .withLogging(logger: _logFactory.createLogger('davianspace.http'))
       .withRetry(
         RetryPolicy.exponential(
           maxRetries: 3,
@@ -108,7 +110,7 @@ Future<void> _example2NamedClientFactory() async {
       (b) => b
           .withBaseUri(Uri.parse('https://jsonplaceholder.typicode.com'))
           .withRetry(RetryPolicy.constant(maxRetries: 2))
-          .withLogging(),
+          .withLogging(logger: _logFactory.createLogger('davianspace.http')),
     );
   }
 
@@ -137,7 +139,7 @@ Future<void> _example3CustomHandler() async {
   final client = HttpClientBuilder('custom')
       .withBaseUri(Uri.parse('https://jsonplaceholder.typicode.com'))
       .addHandler(_CorrelationIdHandler())
-      .withLogging()
+      .withLogging(logger: _logFactory.createLogger('davianspace.http'))
       .build();
 
   try {
@@ -444,7 +446,7 @@ void _example10RateLimiterIntegration() {
   // Build the resilience-only portion to confirm it compiles independently.
   final baseClient = HttpClientBuilder()
       .withBaseUri(Uri.parse('https://api.example.com'))
-      .withLogging()
+      .withLogging(logger: _logFactory.createLogger('davianspace.http'))
       .withRetry(RetryPolicy.exponential(maxRetries: 3))
       .withCircuitBreaker(const CircuitBreakerPolicy(circuitName: 'my-api'))
       .build();
@@ -461,10 +463,10 @@ void _example10RateLimiterIntegration() {
 // ─────────────────────────────────────────────────────────────
 
 void _configureLogging() {
-  Logger.root.level = Level.INFO;
-  Logger.root.onRecord.listen(
-    (r) => print('[${r.loggerName}] ${r.level.name}: ${r.message}'),
-  );
+  _logFactory = LoggingBuilder()
+      .addConsole()
+      .setMinimumLevel(LogLevel.info)
+      .build();
 }
 
 /// Injects a unique correlation ID into every outgoing request.

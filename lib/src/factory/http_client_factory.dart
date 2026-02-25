@@ -1,5 +1,5 @@
-﻿import 'package:http/http.dart' as http;
-import 'package:logging/logging.dart';
+﻿import 'package:davianspace_logging/davianspace_logging.dart' show Logger;
+import 'package:http/http.dart' as http;
 
 import '../handlers/bulkhead_handler.dart';
 import '../handlers/bulkhead_isolation_handler.dart';

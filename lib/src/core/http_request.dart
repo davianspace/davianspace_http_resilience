@@ -1,5 +1,3 @@
-import 'package:meta/meta.dart';
-
 import 'http_method.dart';
 
 /// An immutable, value-type representation of an outgoing HTTP request.
@@ -13,7 +11,6 @@ import 'http_method.dart';
 ///   uri: Uri.parse('https://api.example.com/users/42'),
 /// );
 /// ```
-@immutable
 final class HttpRequest {
   /// Well-known metadata key to override the client-level streaming mode
   /// on a per-request basis.

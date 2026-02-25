@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.3] — 2026-02-25
+
+### Added
+
+- **`davianspace_dependencyinjection` integration** — `davianspace_dependencyinjection ^1.0.3`
+  is now a runtime dependency. Two extension methods are added to `ServiceCollection`:
+  - `addHttpClientFactory([configure])` — registers a singleton `HttpClientFactory`,
+    optionally applying defaults and named-client setup. Uses try-add semantics.
+  - `addTypedHttpClient<TClient>(create, {clientName, configure})` — registers
+    `TClient` as a **transient** service backed by a named client on the shared
+    `HttpClientFactory`. The factory is auto-registered if not already present.
+    Configuration is applied via `onContainerBuilt` so the full container is
+    assembled before any client is resolved.
+- **`davianspace_logging` integration** — `logging` dependency replaced by
+  `davianspace_logging ^1.0.3`. `LoggingHandler` now accepts
+  `davianspace_logging.Logger` (injected or defaults to `NullLogger`).
+
+### Changed
+
+- **Removed `meta` dependency** — `@immutable` and `@internal` annotations dropped;
+  `final class` declarations in Dart 3 already enforce immutability without the
+  annotation.
+- `LoggingHandler` default logger changed from `logging.Logger('davianspace.http')`
+  to `NullLogger('davianspace.http')` — no-op until a `Logger` is injected.
+
+---
+
 ## [1.0.2] — 2026-02-25
 
 ### Added

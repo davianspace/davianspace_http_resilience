@@ -1,5 +1,3 @@
-import 'package:meta/meta.dart';
-
 /// Top-level resilience configuration parsed from a JSON config file.
 ///
 /// Each property maps to a specific resilience policy section.  A `null`
@@ -20,7 +18,6 @@ import 'package:meta/meta.dart';
 ///   }
 /// }
 /// ```
-@immutable
 final class ResilienceConfig {
   /// Creates a [ResilienceConfig] with the given policy sections.
   const ResilienceConfig({
@@ -85,7 +82,6 @@ final class ResilienceConfig {
 // ---------------------------------------------------------------------------
 
 /// Configuration for a retry policy.
-@immutable
 final class RetryConfig {
   /// Creates a [RetryConfig].
   ///
@@ -116,7 +112,6 @@ final class RetryConfig {
 }
 
 /// Configuration for a timeout policy.
-@immutable
 final class TimeoutConfig {
   /// Creates a [TimeoutConfig] with the given [seconds].
   ///
@@ -135,7 +130,6 @@ final class TimeoutConfig {
 }
 
 /// Configuration for a circuit-breaker policy.
-@immutable
 final class CircuitBreakerConfig {
   /// Creates a [CircuitBreakerConfig].
   ///
@@ -174,7 +168,6 @@ final class CircuitBreakerConfig {
 }
 
 /// Configuration for a bulkhead (concurrency-limiting) policy.
-@immutable
 final class BulkheadConfig {
   /// Creates a [BulkheadConfig].
   ///
@@ -207,7 +200,6 @@ final class BulkheadConfig {
 }
 
 /// Configuration for a bulkhead-isolation policy.
-@immutable
 final class BulkheadIsolationConfig {
   /// Creates a [BulkheadIsolationConfig].
   ///
@@ -244,7 +236,6 @@ final class BulkheadIsolationConfig {
 }
 
 /// Configuration for a retry back-off strategy.
-@immutable
 final class BackoffConfig {
   /// Creates a [BackoffConfig].
   const BackoffConfig({
@@ -297,7 +288,6 @@ final class BackoffConfig {
 ///   }
 /// }
 /// ```
-@immutable
 final class HedgingConfig {
   /// Creates a [HedgingConfig].
   ///
@@ -339,7 +329,6 @@ final class HedgingConfig {
 ///   }
 /// }
 /// ```
-@immutable
 final class FallbackConfig {
   /// Creates a [FallbackConfig].
   const FallbackConfig({

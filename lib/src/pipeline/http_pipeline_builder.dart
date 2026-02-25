@@ -1,5 +1,3 @@
-import 'package:meta/meta.dart';
-
 import '../core/http_context.dart';
 import '../core/http_response.dart';
 import 'delegating_handler.dart';
@@ -14,7 +12,6 @@ import 'terminal_handler.dart';
 ///
 /// > **Internal implementation detail.** Use `HttpClientFactory` to build
 /// > pipelines. Call `.addHandler()` on the builder for custom middleware.
-@internal
 final class HttpPipelineBuilder {
   final List<DelegatingHandler> _handlers = [];
   TerminalHandler? _terminalHandler;

@@ -161,6 +161,8 @@ library davianspace_http_resilience;
 export 'src/core/core.dart';
 // Exceptions
 export 'src/exceptions/exceptions.dart';
+// DI integration — ServiceCollection extensions for HttpClientFactory
+export 'src/extensions/http_resilience_di_extensions.dart';
 // Factory & client
 export 'src/factory/factory.dart';
 // Handlers

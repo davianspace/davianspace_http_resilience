@@ -1,5 +1,5 @@
+import 'package:davianspace_logging/davianspace_logging.dart' show Logger;
 import 'package:http/http.dart' as http;
-import 'package:logging/logging.dart';
 
 import '../core/cancellation_token.dart';
 import '../core/http_response.dart';

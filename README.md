@@ -86,7 +86,7 @@ with zero reflection and strict null-safety.
 | **Per-request streaming** | Override the pipeline streaming mode per-request via metadata |
 | **Configuration-driven policies** | `ResilienceConfigLoader` + JSON sources bind policies at runtime |
 | **Fluent builder DSL** | `FluentHttpClientBuilder` for expressive, step-by-step client construction |
-| **Structured logging** | Header-redacted structured logging via `package:logging` |
+| **Structured logging** | Header-redacted structured logging via `davianspace_logging` |
 | **Typed HTTP client** | Ergonomic `get` / `post` / `put` / `patch` / `delete` / `head` / `options` verbs |
 | **Named client registry** | `HttpClientFactory` for shared, lifecycle-managed clients |
 | **Cancellation support** | `CancellationToken` for cooperative cancellation across the pipeline |
@@ -111,8 +111,8 @@ with zero reflection and strict null-safety.
 | Package | Version |
 |---------|---------|
 | `http` | `^1.2.1` |
-| `logging` | `^1.2.0` |
-| `meta` | `^1.12.0` |
+| `davianspace_dependencyinjection` | `^1.0.3` |
+| `davianspace_logging` | `^1.0.3` |
 
 ---
 
@@ -120,7 +120,7 @@ with zero reflection and strict null-safety.
 
 ```yaml
 dependencies:
-  davianspace_http_resilience: ^1.0.2
+  davianspace_http_resilience: ^1.0.3
 ```
 
 ```bash
@@ -132,13 +132,15 @@ dart pub get
 | Package | Purpose |
 |---------|---------|
 | [`davianspace_http_ratelimit`](https://pub.dev/packages/davianspace_http_ratelimit) | Adds `withRateLimit()` to `HttpClientBuilder`; six rate-limiting algorithms + server-side admission control |
+| [`davianspace_dependencyinjection`](https://pub.dev/packages/davianspace_dependencyinjection) | Adds `addHttpClientFactory()` and `addTypedHttpClient<T>()` to `ServiceCollection` |
+| [`davianspace_logging`](https://pub.dev/packages/davianspace_logging) | Structured logging framework; inject a `Logger` into `LoggingHandler` via `addLogging()` on `ServiceCollection` |
 
 Add both packages to use rate limiting:
 
 ```yaml
 dependencies:
-  davianspace_http_resilience: ^1.0.2
-  davianspace_http_ratelimit:  ^1.0.0
+  davianspace_http_resilience: ^1.0.3
+  davianspace_http_ratelimit:  ^1.0.3
 ```
 
 ---
@@ -464,6 +466,63 @@ final client = HttpClientBuilder('api')
     .build();
 ```
 
+### DI Container Integration (`davianspace_dependencyinjection`)
+
+When used with
+[`davianspace_dependencyinjection`](https://pub.dev/packages/davianspace_dependencyinjection),
+`HttpClientFactory` and typed HTTP clients become first-class injectable services.
+
+```yaml
+dependencies:
+  davianspace_http_resilience: ^1.0.3
+  davianspace_dependencyinjection: ^1.0.3
+```
+
+```dart
+import 'package:davianspace_http_resilience/davianspace_http_resilience.dart';
+import 'package:davianspace_dependencyinjection/davianspace_dependencyinjection.dart';
+
+// Typed client wrapper
+class CatalogService {
+  CatalogService(this._client);
+  final ResilientHttpClient _client;
+
+  Future<List<dynamic>> getItems() async {
+    final r = await _client.get(Uri.parse('/items'));
+    return r.ensureSuccess().bodyAsJsonList ?? [];
+  }
+}
+
+final provider = ServiceCollection()
+  ..addHttpClientFactory((factory) {
+    factory.configureDefaults((b) => b
+        .withDefaultHeader('Accept', 'application/json')
+        .withLogging());
+  })
+  ..addTypedHttpClient<CatalogService>(
+    (client) => CatalogService(client),
+    clientName: 'catalog',
+    configure: (b) => b
+        .withBaseUri(Uri.parse('https://catalog.svc/v2'))
+        .withRetry(RetryPolicy.exponential(maxRetries: 3))
+        .withCircuitBreaker(const CircuitBreakerPolicy(circuitName: 'catalog'))
+        .withTimeout(const TimeoutPolicy(timeout: Duration(seconds: 10))),
+  )
+  .buildServiceProvider();
+
+// Inject CatalogService anywhere — a fresh ResilientHttpClient is
+// created per resolution from the shared HttpClientFactory.
+final catalog = provider.getRequired<CatalogService>();
+final items = await catalog.getItems();
+```
+
+| Method | Registered type | Lifetime |
+|--------|-----------------|----------|
+| `addHttpClientFactory()` | `HttpClientFactory` | Singleton |
+| `addTypedHttpClient<T>()` | `T` | Transient |
+
+---
+
 ### Named Client Factory
 
 Register once, resolve anywhere:
@@ -658,7 +717,7 @@ app.get('/health', (req, res) {
 
 ```dart
 final client = HttpClientBuilder('secure-api')
-    .withLogging(LoggingHandler(
+    .addHandler(LoggingHandler(
       logHeaders: true,
       // Default redacted set: authorization, proxy-authorization,
       // cookie, set-cookie, x-api-key
@@ -680,8 +739,8 @@ algorithms. Import both packages:
 
 ```yaml
 dependencies:
-  davianspace_http_resilience: ^1.0.2
-  davianspace_http_ratelimit:  ^1.0.0
+  davianspace_http_resilience: ^1.0.3
+  davianspace_http_ratelimit:  ^1.0.3
 ```
 
 ```dart
@@ -872,6 +931,33 @@ The test suite covers:
 ---
 
 ## Migration Guide
+
+### From 1.0.2 → 1.0.3
+
+**No breaking changes.** Version 1.0.3 is fully backward-compatible.
+
+New features and changes after upgrading:
+
+1. **DI container integration** — `davianspace_dependencyinjection ^1.0.3` is now
+   a runtime dependency. Two extension methods on `ServiceCollection` make
+   `HttpClientFactory` and typed HTTP clients injectable:
+   - `addHttpClientFactory([configure])` — singleton `HttpClientFactory` with
+     optional factory-level configuration.
+   - `addTypedHttpClient<TClient>(create, {clientName, configure})` — transient
+     typed client resolved from the shared factory.
+   Existing code that does not use DI is completely unaffected.
+
+2. **`logging` → `davianspace_logging`** — `package:logging` has been replaced by
+   `davianspace_logging ^1.0.3`. `LoggingHandler` now accepts a
+   `davianspace_logging.Logger` instead of `logging.Logger`. If you were passing
+   a `logging.Logger` to `withLogging(logger: ...)` you must switch to a
+   `davianspace_logging.Logger` (created via `LoggingBuilder` or injected via DI).
+   The default is `NullLogger` — a no-op logger.
+
+3. **`meta` removed** — `@immutable` and `@internal` annotations have been
+   dropped. No source changes are required on your side.
+
+---
 
 ### From 1.0.1 → 1.0.2
 

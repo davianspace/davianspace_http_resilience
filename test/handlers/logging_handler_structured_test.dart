@@ -1,12 +1,12 @@
 // Tests for LoggingHandler(structured: true) added in Phase 6.2.
-// All log capture is done via the `logging` package.
+// All log capture is done via the `davianspace_logging` package.
 
 import 'dart:convert';
 
 import 'package:davianspace_http_resilience/davianspace_http_resilience.dart';
+import 'package:davianspace_logging/davianspace_logging.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
-import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -26,8 +26,11 @@ ResilientHttpClient _buildLoggingClient(
         .withHttpClient(inner)
         .build();
 
-Logger _uniqueLogger() =>
-    Logger('test.logging.${DateTime.now().microsecondsSinceEpoch}');
+({MemoryLogStore store, Logger logger}) _makeLogger() {
+  final store = MemoryLogStore();
+  final factory = LoggingBuilder().addMemory(store: store).build();
+  return (store: store, logger: factory.createLogger('test.logging'));
+}
 
 http.Client _respondWith(int status, {String body = 'ok'}) =>
     http_testing.MockClient((_) async => http.Response(body, status));
@@ -41,25 +44,25 @@ http.Client _alwaysThrows(Object error) =>
 
 void main() {
   group('LoggingHandler — structured=false (default)', () {
-    late List<LogRecord> records;
+    late MemoryLogStore store;
     late Logger logger;
 
     setUp(() {
-      records = [];
-      logger = _uniqueLogger();
-      logger.onRecord.listen(records.add);
+      final r = _makeLogger();
+      store = r.store;
+      logger = r.logger;
     });
 
     test('request log starts with →', () async {
       final client = _buildLoggingClient(_respondWith(200), logger: logger);
       await client.get(Uri.parse('/path'));
-      expect(records.any((r) => r.message.startsWith('→')), isTrue);
+      expect(store.events.any((e) => e.message.startsWith('→')), isTrue);
     });
 
     test('response log starts with ←', () async {
       final client = _buildLoggingClient(_respondWith(200), logger: logger);
       await client.get(Uri.parse('/path'));
-      expect(records.any((r) => r.message.startsWith('←')), isTrue);
+      expect(store.events.any((e) => e.message.startsWith('←')), isTrue);
     });
 
     test('error log is not JSON', () async {
@@ -68,20 +71,20 @@ void main() {
         logger: logger,
       );
       await expectLater(client.get(Uri.parse('/fail')), throwsException);
-      final errorRecord = records.firstWhere(
-        (r) => r.level >= Level.SEVERE,
-        orElse: () => throw StateError('no severe record'),
+      final errorEvent = store.events.firstWhere(
+        (e) => e.level.isAtLeast(LogLevel.error),
+        orElse: () => throw StateError('no error event'),
       );
-      expect(() => jsonDecode(errorRecord.message), throwsFormatException);
+      expect(() => jsonDecode(errorEvent.message), throwsFormatException);
     });
 
     test('query parameters are stripped from URI by default', () async {
       final client = _buildLoggingClient(_respondWith(200), logger: logger);
       await client.get(Uri.parse('/search?secret=abc&key=xyz'));
-      final requestRecord =
-          records.firstWhere((r) => r.message.startsWith('→'));
-      expect(requestRecord.message, isNot(contains('secret')));
-      expect(requestRecord.message, isNot(contains('xyz')));
+      final requestEvent =
+          store.events.firstWhere((e) => e.message.startsWith('→'));
+      expect(requestEvent.message, isNot(contains('secret')));
+      expect(requestEvent.message, isNot(contains('xyz')));
     });
   });
 
@@ -90,13 +93,13 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
 
   group('LoggingHandler — structured=true', () {
-    late List<LogRecord> records;
+    late MemoryLogStore store;
     late Logger logger;
 
     setUp(() {
-      records = [];
-      logger = _uniqueLogger();
-      logger.onRecord.listen(records.add);
+      final r = _makeLogger();
+      store = r.store;
+      logger = r.logger;
     });
 
     // ── Request ──────────────────────────────────────────────────────────────
@@ -109,9 +112,9 @@ void main() {
       );
       await client.get(Uri.parse('/path'));
 
-      final record =
-          records.firstWhere((r) => r.message.contains('"event":"request"'));
-      final json = jsonDecode(record.message) as Map<String, dynamic>;
+      final event = store.events
+          .firstWhere((e) => e.message.contains('"event":"request"'));
+      final json = jsonDecode(event.message) as Map<String, dynamic>;
       expect(json['event'], 'request');
       expect(json['method'], 'GET');
       expect(json['uri'], isA<String>());
@@ -125,9 +128,9 @@ void main() {
       );
       await client.get(Uri.parse('/search?token=secret'));
 
-      final record =
-          records.firstWhere((r) => r.message.contains('"event":"request"'));
-      final json = jsonDecode(record.message) as Map<String, dynamic>;
+      final event = store.events
+          .firstWhere((e) => e.message.contains('"event":"request"'));
+      final json = jsonDecode(event.message) as Map<String, dynamic>;
       expect(json['uri'] as String, isNot(contains('secret')));
     });
 
@@ -141,9 +144,9 @@ void main() {
       );
       await client.post(Uri.parse('/items'), body: '{}');
 
-      final record =
-          records.firstWhere((r) => r.message.contains('"event":"response"'));
-      final json = jsonDecode(record.message) as Map<String, dynamic>;
+      final event = store.events
+          .firstWhere((e) => e.message.contains('"event":"response"'));
+      final json = jsonDecode(event.message) as Map<String, dynamic>;
       expect(json['event'], 'response');
       expect(json['status'], 201);
       expect(json['method'], 'POST');
@@ -159,9 +162,9 @@ void main() {
       );
       await client.get(Uri.parse('/items'));
 
-      final record =
-          records.firstWhere((r) => r.message.contains('"event":"response"'));
-      final json = jsonDecode(record.message) as Map<String, dynamic>;
+      final event = store.events
+          .firstWhere((e) => e.message.contains('"event":"response"'));
+      final json = jsonDecode(event.message) as Map<String, dynamic>;
       expect(json, contains('uri'));
     });
 
@@ -175,9 +178,9 @@ void main() {
       );
       await expectLater(client.get(Uri.parse('/fail')), throwsException);
 
-      final record =
-          records.firstWhere((r) => r.message.contains('"event":"error"'));
-      final json = jsonDecode(record.message) as Map<String, dynamic>;
+      final event =
+          store.events.firstWhere((e) => e.message.contains('"event":"error"'));
+      final json = jsonDecode(event.message) as Map<String, dynamic>;
       expect(json['event'], 'error');
       expect(json['method'], 'GET');
       expect(json['durationMs'], isA<int>());
@@ -192,15 +195,15 @@ void main() {
       );
       await expectLater(client.get(Uri.parse('/fail')), throwsException);
 
-      final record =
-          records.firstWhere((r) => r.message.contains('"event":"error"'));
-      final json = jsonDecode(record.message) as Map<String, dynamic>;
+      final event =
+          store.events.firstWhere((e) => e.message.contains('"event":"error"'));
+      final json = jsonDecode(event.message) as Map<String, dynamic>;
       expect(json, contains('uri'));
     });
 
     // ── Level mapping ─────────────────────────────────────────────────────────
 
-    test('4xx response logged at WARNING level', () async {
+    test('4xx response logged at warning level', () async {
       final client = _buildLoggingClient(
         _respondWith(404),
         logger: logger,
@@ -208,12 +211,12 @@ void main() {
       );
       await client.get(Uri.parse('/missing'));
 
-      final record =
-          records.firstWhere((r) => r.message.contains('"event":"response"'));
-      expect(record.level, Level.WARNING);
+      final event = store.events
+          .firstWhere((e) => e.message.contains('"event":"response"'));
+      expect(event.level, LogLevel.warning);
     });
 
-    test('5xx response logged at SEVERE level', () async {
+    test('5xx response logged at error level', () async {
       final client = _buildLoggingClient(
         _respondWith(500),
         logger: logger,
@@ -221,12 +224,12 @@ void main() {
       );
       await client.get(Uri.parse('/broken'));
 
-      final record =
-          records.firstWhere((r) => r.message.contains('"event":"response"'));
-      expect(record.level, Level.SEVERE);
+      final event = store.events
+          .firstWhere((e) => e.message.contains('"event":"response"'));
+      expect(event.level, LogLevel.error);
     });
 
-    test('2xx response logged at INFO level', () async {
+    test('2xx response logged at info level', () async {
       final client = _buildLoggingClient(
         _respondWith(200),
         logger: logger,
@@ -234,9 +237,9 @@ void main() {
       );
       await client.get(Uri.parse('/ok'));
 
-      final record =
-          records.firstWhere((r) => r.message.contains('"event":"response"'));
-      expect(record.level, Level.INFO);
+      final event = store.events
+          .firstWhere((e) => e.message.contains('"event":"response"'));
+      expect(event.level, LogLevel.info);
     });
   });
 }
