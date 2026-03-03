@@ -154,8 +154,7 @@
 /// * **Clean Architecture** — dependency arrows point inward
 /// * **Deterministic disposal** — `dispose()` on policies, handlers, and clients
 
-// ignore: unnecessary_library_name
-library davianspace_http_resilience;
+library;
 
 // Core
 export 'src/core/core.dart';

@@ -240,6 +240,19 @@ final class ResilientHttpClient {
         'Content-Type',
         () => 'text/plain; charset=utf-8',
       );
+    } else if (body is Map<String, dynamic> || body is Map<String, Object?>) {
+      bodyBytes = utf8.encode(jsonEncode(body));
+      mergedHeaders.putIfAbsent(
+        'Content-Type',
+        () => 'application/json; charset=utf-8',
+      );
+    } else if (body != null) {
+      throw ArgumentError.value(
+        body,
+        'body',
+        'Unsupported body type ${body.runtimeType}. '
+        'Use String, List<int>, or Map<String, dynamic>.',
+      );
     }
 
     final request = HttpRequest(

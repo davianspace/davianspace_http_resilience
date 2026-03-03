@@ -8,9 +8,14 @@ import '../policies/bulkhead_isolation_policy.dart';
 //  BulkheadIsolationHandler
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// A [DelegatingHandler] that isolates the inner pipeline via the bulkhead
-/// pattern, controlling how many requests execute concurrently and how many
-/// may queue.
+/// A Completer-based bulkhead handler with metrics and zero-polling semaphore.
+///
+/// ## When to use this vs `BulkheadHandler`
+///
+/// Prefer `BulkheadIsolationHandler` when you want built-in metrics
+/// (`activeCount`, `queuedCount`) or need to isolate separate resource
+/// pools by name. For simple concurrency limiting, `BulkheadHandler`
+/// is sufficient.
 ///
 /// [BulkheadIsolationHandler] is configured by a [BulkheadIsolationPolicy]
 /// and shares a single [BulkheadIsolationSemaphore] across all requests

@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.4] — 2026-03-03
+
+### Fixed
+
+- **FIX-01: Cancel losing hedge attempts** — `HedgingHandler` now creates
+  per-attempt `CancellationToken` instances and cancels all losing attempts
+  when a winner is found, freeing network resources immediately.
+- **FIX-02: Drain abandoned streaming responses in hedging** — Non-winning
+  and abandoned streaming `HttpResponse` bodies are now drained to release
+  underlying TCP connections.
+- **FIX-03: Drain discarded streaming responses during retry** — `RetryHandler`
+  now drains previous streaming responses before overwriting `lastResponse`,
+  and drains the final response before throwing `RetryExhaustedException`.
+- **FIX-04: Parse RFC 9110 HTTP-date Retry-After header** — `RetryHandler`
+  now parses both numeric seconds and IMF-fixdate format (`Retry-After`
+  header) per RFC 9110 §10.2.3.
+- **FIX-05: Eliminate DateTime drift in `CircuitOpenException.retryAfter`** —
+  `retryAfter` is now computed from the monotonic `Stopwatch` remaining time
+  rather than wall-clock `_openedAt`, avoiding NTP/DST drift.
+- **FIX-06: Wrap streaming errors in TerminalHandler** — Raw
+  `http.ClientException` errors emitted by streaming response bodies are now
+  wrapped in `HttpResilienceException` for uniform error handling.
+- **FIX-07: Forward swallowed `onFallback` errors to event hub** —
+  `FallbackHandler` now emits a `FallbackCallbackErrorEvent` to the
+  `ResilienceEventHub` when the `onFallback` callback throws, instead of
+  silently swallowing the error. Added `eventHub` field to `FallbackPolicy`.
+- **FIX-10: Guard ExponentialBackoff against int overflow** — For attempts
+  with exponent > 52, `ExponentialBackoff.delayFor()` now returns `maxDelay`
+  directly instead of crashing with `UnsupportedError` on `double.infinity`.
+- **FIX-11: Handle `Map` body in `ResilientHttpClient._send()`** — Passing a
+  `Map<String, dynamic>` body to `post()` / `put()` / `patch()` now
+  auto-encodes it as JSON with `Content-Type: application/json`. Unsupported
+  body types now throw `ArgumentError` instead of silently dropping data.
+
+### Improved
+
+- **FIX-08: Copy-on-write optimization in `ResilienceEventHub.emit()`** —
+  Listener snapshots are now cached and invalidated only on add/remove,
+  reducing GC pressure on hot-path event emission. Dynamic dispatch in
+  `_safeInvoke` replaced with `Function.apply` to satisfy
+  `avoid_dynamic_calls` lint.
+- **FIX-09: Ring buffer for sliding window in `CircuitBreakerState`** —
+  Replaced `List.removeAt(0)` (O(n)) with a fixed-size ring buffer (O(1))
+  for the sliding-window failure counter.
+
+### Added
+
+- `FallbackCallbackErrorEvent` — new event type emitted when
+  `FallbackPolicy.onFallback` throws.
+- `FallbackPolicy.eventHub` — optional `ResilienceEventHub` for fallback
+  lifecycle event forwarding.
+
+### Documentation
+
+- **FIX-12:** Added "When to use" guidance to `HttpClientBuilder`,
+  `FluentHttpClientBuilder`, `BulkheadHandler`, and
+  `BulkheadIsolationHandler` doc comments.
+- **FIX-13:** `NoOpPipeline` annotated as testing-only with expanded
+  doc comment.
+- **FIX-14:** `TimeoutHandler` doc comment now documents the "abandoned
+  in-flight request" limitation and suggests `CancellationToken` or
+  socket-level timeouts as alternatives.
+- Enhanced README with comprehensive migration guide, expanded usage
+  examples, and improved formatting.
+- Extended `example/example.dart` with `Map` body posting, transport-agnostic
+  policy engine, and error-handling patterns.
+
+---
+
 ## [1.0.3] — 2026-02-25
 
 ### Added

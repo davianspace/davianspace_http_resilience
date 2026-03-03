@@ -24,6 +24,8 @@ build/
 .idea/
 .vscode/
 
+#
+FIX_PROMPT.md
 # Logs
 *.log
 

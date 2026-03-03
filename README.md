@@ -36,6 +36,7 @@ with zero reflection and strict null-safety.
   - [Per-Request Streaming](#per-request-streaming)
   - [Custom Handlers](#custom-handlers)
   - [Named Client Factory](#named-client-factory)
+  - [DI Container Integration](#di-container-integration-davianspace_dependencyinjection)
   - [Cancellation](#cancellation)
   - [Response Helpers](#response-helpers)
   - [Transport-Agnostic Policy Engine](#transport-agnostic-policy-engine)
@@ -44,6 +45,8 @@ with zero reflection and strict null-safety.
   - [Health Checks & Monitoring](#health-checks--monitoring)
   - [Header Redaction (Security Logging)](#header-redaction-security-logging)
   - [Rate Limiter Integration](#rate-limiter-integration)
+  - [Error Handling Patterns](#error-handling-patterns)
+  - [Common Patterns & Recipes](#common-patterns--recipes)
 - [Lifecycle & Disposal](#lifecycle--disposal)
 - [Testing](#testing)
 - [API Reference](#api-reference)
@@ -120,7 +123,7 @@ with zero reflection and strict null-safety.
 
 ```yaml
 dependencies:
-  davianspace_http_resilience: ^1.0.3
+  davianspace_http_resilience: ^1.0.4
 ```
 
 ```bash
@@ -139,7 +142,7 @@ Add both packages to use rate limiting:
 
 ```yaml
 dependencies:
-  davianspace_http_resilience: ^1.0.3
+  davianspace_http_resilience: ^1.0.4
   davianspace_http_ratelimit:  ^1.0.3
 ```
 
@@ -329,7 +332,18 @@ final policy = CircuitBreakerPolicy(
 final policy = TimeoutPolicy(timeout: Duration(seconds: 10));
 ```
 
+> **Caveat — abandoned in-flight requests:** When a timeout fires,
+> `TimeoutHandler` stops waiting for the response but does **not** cancel the
+> underlying HTTP call — the in-flight request continues to completion in the
+> background (a Dart platform limitation of `Future.timeout()`). For true
+> cancellation, use `CancellationToken` with a cancellation-aware client adapter
+> or set socket-level timeouts on the underlying `http.Client`.
+
 ### Bulkhead (Concurrency Control)
+
+Simple FIFO concurrency limiting. Use `BulkheadHandler` for straightforward
+max-concurrency control; prefer `BulkheadIsolationHandler` when you need
+built-in metrics or per-semaphore resource pools.
 
 ```dart
 final policy = BulkheadPolicy(
@@ -341,7 +355,9 @@ final policy = BulkheadPolicy(
 
 ### Bulkhead Isolation
 
-Semaphore-based isolation with rejection callbacks and live metrics:
+Completer-based semaphore with rejection callbacks, live metrics
+(`activeCount`, `queuedCount`), and zero-polling design. Prefer this over
+`BulkheadHandler` when you need observability or named resource-pool isolation.
 
 ```dart
 final policy = BulkheadIsolationPolicy(
@@ -474,7 +490,7 @@ When used with
 
 ```yaml
 dependencies:
-  davianspace_http_resilience: ^1.0.3
+  davianspace_http_resilience: ^1.0.4
   davianspace_dependencyinjection: ^1.0.3
 ```
 
@@ -739,7 +755,7 @@ algorithms. Import both packages:
 
 ```yaml
 dependencies:
-  davianspace_http_resilience: ^1.0.3
+  davianspace_http_resilience: ^1.0.4
   davianspace_http_ratelimit:  ^1.0.3
 ```
 
@@ -789,6 +805,137 @@ try {
 > Server-side per-key admission control is also available via `ServerRateLimiter`.
 > See the [companion package README](https://pub.dev/packages/davianspace_http_ratelimit)
 > for full documentation.
+
+### Error Handling Patterns
+
+The library provides a structured exception hierarchy for fine-grained error
+handling. All resilience exceptions extend `HttpResilienceException`:
+
+```dart
+try {
+  final response = await client.get(Uri.parse('/api/data'));
+  final data = response.ensureSuccess().bodyAsJsonMap;
+  print(data);
+} on HttpStatusException catch (e) {
+  // Non-2xx status code — inspect statusCode, response body, etc.
+  print('HTTP ${e.statusCode}: ${e.message}');
+} on CircuitOpenException catch (e) {
+  // Circuit breaker is open — fail fast without hitting the server
+  print('Circuit open: retry after ${e.retryAfter}');
+} on BulkheadRejectedException catch (e) {
+  // Concurrency limit reached — queue full or timed out
+  print('Overloaded: $e');
+} on HttpTimeoutException catch (e) {
+  // Per-attempt or total-operation deadline exceeded
+  print('Timed out: $e');
+} on RetryExhaustedException catch (e) {
+  // All retry attempts failed
+  print('Retries exhausted after ${e.attempts} attempts: ${e.lastException}');
+} on HedgingException catch (e) {
+  // All hedged attempts failed
+  print('All hedged attempts failed: $e');
+} on HttpResilienceException catch (e) {
+  // Catch-all for any resilience exception not matched above
+  print('Resilience error: $e');
+} on CancellationException catch (e) {
+  // Request was cancelled via CancellationToken
+  print('Cancelled: ${e.reason}');
+}
+```
+
+**Exception hierarchy:**
+
+| Exception | When |
+|-----------|------|
+| `HttpStatusException` | `ensureSuccess()` on non-2xx response |
+| `CircuitOpenException` | Circuit breaker is in the Open state |
+| `BulkheadRejectedException` | Concurrency/queue limit exceeded |
+| `HttpTimeoutException` | Deadline exceeded |
+| `RetryExhaustedException` | All retries consumed |
+| `HedgingException` | All hedged attempts failed |
+| `HttpResilienceException` | Base class for all resilience errors |
+| `CancellationException` | Cooperative cancellation triggered |
+
+### Common Patterns & Recipes
+
+#### Auto-encoding Map bodies as JSON
+
+The `ResilientHttpClient` verb helpers automatically JSON-encode `Map` bodies
+and set `Content-Type: application/json`:
+
+```dart
+// No manual jsonEncode or Content-Type header needed!
+final response = await client.post(
+  Uri.parse('/api/orders'),
+  body: {'item': 'widget', 'quantity': 5, 'price': 29.99},
+);
+```
+
+String and byte-array bodies continue to work as before.
+
+#### Shared circuit breaker across multiple clients
+
+Circuit breakers with the same `circuitName` share state, allowing you to
+protect a downstream service regardless of which client hits it:
+
+```dart
+final sharedBreaker = const CircuitBreakerPolicy(
+  circuitName: 'payment-service',  // same name = shared state
+  failureThreshold: 5,
+  breakDuration: Duration(seconds: 30),
+);
+
+final orderClient = HttpClientBuilder('orders')
+    .withCircuitBreaker(sharedBreaker)
+    .build();
+
+final refundClient = HttpClientBuilder('refunds')
+    .withCircuitBreaker(sharedBreaker)
+    .build();
+// If payment-service degrades, BOTH clients trip the same breaker.
+```
+
+#### Transport-agnostic resilience for non-HTTP operations
+
+Use `Policy.wrap` or `ResiliencePipelineBuilder` for database calls, gRPC,
+file I/O, or any async operation:
+
+```dart
+final dbPolicy = Policy.wrap([
+  Policy.retry(maxRetries: 3),
+  Policy.timeout(duration: Duration(seconds: 2)),
+  Policy.bulkheadIsolation(maxConcurrentRequests: 5),
+]);
+
+try {
+  final rows = await dbPolicy.execute(() => database.query('SELECT ...'));
+  print('Got ${rows.length} rows');
+} finally {
+  dbPolicy.dispose();
+}
+```
+
+#### Observability with the event hub
+
+Subscribe to resilience lifecycle events for metrics, alerting, or diagnostics:
+
+```dart
+final hub = ResilienceEventHub();
+
+// Type-safe subscription
+hub.on<RetryEvent>((event) {
+  metrics.increment('retry', tags: {'attempt': '${event.attempt}'});
+});
+hub.on<CircuitOpenEvent>((event) {
+  alerting.page('Circuit open: ${event.circuitName}');
+});
+hub.on<FallbackCallbackErrorEvent>((event) {
+  log.error('Fallback callback failed', event.callbackError);
+});
+
+// Catch-all for logging
+hub.onAny((event) => log.debug('Resilience event: $event'));
+```
 
 ---
 
@@ -871,6 +1018,7 @@ The test suite covers:
 | `HttpHandler` | Abstract pipeline handler |
 | `DelegatingHandler` | Middleware base with `innerHandler` chaining |
 | `TerminalHandler` | Innermost handler — performs HTTP I/O |
+| `NoOpPipeline` | Testing-only no-op handler that returns `HttpResponse.ok()` — do **not** use in production |
 
 ### Policies (Handler-Level Configuration)
 
@@ -924,13 +1072,74 @@ The test suite covers:
 | Type | Role |
 |------|------|
 | `HttpClientFactory` | Named + typed client factory with lifecycle management |
-| `HttpClientBuilder` | Fluent pipeline builder for `ResilientHttpClient` |
-| `FluentHttpClientBuilder` | Immutable fluent DSL |
+| `HttpClientBuilder` | Mutable imperative builder — use for straightforward pipeline setup |
+| `FluentHttpClientBuilder` | Immutable fluent DSL — use when sharing partially-configured builders across scopes |
 | `ResilientHttpClient` | High-level HTTP client with verb helpers |
+
+> **Which builder?** `HttpClientBuilder` is the simpler imperative API (call
+> `with*()` methods, then `build()`). `FluentHttpClientBuilder` returns a new
+> instance on every method call, making it safe to fork and reuse partially-
+> configured builders. See the doc comments on each class for detailed guidance.
 
 ---
 
 ## Migration Guide
+
+### From 1.0.3 → 1.0.4
+
+**No breaking changes.** Version 1.0.4 is fully backward-compatible.
+
+Bug fixes and improvements included in this release:
+
+1. **Hedging per-attempt cancellation** — Each hedging attempt now receives its
+   own `CancellationToken`. When a winner is selected all other in-flight
+   attempts are cancelled immediately, preventing wasted work.
+
+2. **Streaming response drain** — Abandoned streaming responses in both the
+   hedging and retry handlers are now drained (`response.stream.drain()`) before
+   being discarded, preventing socket/memory leaks.
+
+3. **`Retry-After` HTTP-date parsing** — The retry handler now correctly parses
+   RFC 9110 IMF-fixdate values (e.g. `Sun, 06 Nov 1994 08:49:37 GMT`) in
+   addition to plain seconds.
+
+4. **Circuit-breaker monotonic timer** — `retryAfter` is now computed from a
+   monotonic `Stopwatch` instead of `DateTime`, eliminating clock-skew issues.
+
+5. **Circuit-breaker ring-buffer window** — The sliding window is now an O(1)
+   ring buffer instead of an O(n) list, improving performance under high load.
+
+6. **Streaming error wrapping** — `TerminalHandler` now wraps
+   `http.ClientException` errors that arrive mid-stream in
+   `HttpResilienceException`, ensuring consistent error types.
+
+7. **Fallback callback error reporting** — Errors thrown inside fallback
+   callbacks are now caught and emitted as `FallbackCallbackErrorEvent` via the
+   `ResilienceEventHub` instead of being silently swallowed.
+
+8. **Event hub COW caching** — `ResilienceEventHub.emit()` now caches listener
+   snapshots (copy-on-write) and invalidates them only on subscription changes,
+   reducing per-emit allocation overhead.
+
+9. **Exponential back-off overflow guard** — `ExponentialBackoff.delayFor()`
+   now guards against `double.infinity` when the attempt number exceeds 52.
+
+10. **`Map` body auto-encoding** — `ResilientHttpClient` verb helpers now
+    automatically JSON-encode `Map<String, dynamic>` and `Map<String, Object?>`
+    request bodies and set the `Content-Type` to `application/json`.
+
+11. **Enhanced doc comments** — `HttpClientBuilder` and `FluentHttpClientBuilder`
+    now include "When to use" guidance comparing the two builders.
+    `BulkheadHandler` and `BulkheadIsolationHandler` doc comments explain when
+    to prefer one over the other. `NoOpPipeline` is annotated as testing-only.
+    `TimeoutHandler` documents the "abandoned in-flight request" limitation and
+    suggests `CancellationToken` or socket-level timeouts as alternatives.
+
+No migration steps are required — just update the version constraint:
+
+```yaml
+davianspace_http_resilience: ^1.0.4
+```
 
 ### From 1.0.2 → 1.0.3
 

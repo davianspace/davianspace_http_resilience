@@ -64,6 +64,10 @@ final class HttpPipelineBuilder {
 ///
 /// Useful as a stand-in in widget tests or unit tests that don't exercise
 /// the network layer.
+///
+/// **Note:** This class is intended for testing scenarios only. Production
+/// code should use `HttpClientBuilder` or `FluentHttpClientBuilder` to
+/// construct real pipelines.
 final class NoOpPipeline extends HttpHandler {
   const NoOpPipeline();
 

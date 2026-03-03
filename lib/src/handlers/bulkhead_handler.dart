@@ -5,12 +5,20 @@ import '../pipeline/delegating_handler.dart';
 import '../policies/bulkhead_policy.dart';
 import '../policies/bulkhead_signals.dart';
 
-/// A [DelegatingHandler] that limits concurrent access via the Bulkhead pattern.
+/// A simple queue-based bulkhead handler that limits concurrent HTTP requests.
 ///
-/// [BulkheadHandler] uses an internal [BulkheadSemaphore] to cap the number
-/// of parallel requests. Requests beyond [BulkheadPolicy.maxConcurrency] are
-/// queued up to [BulkheadPolicy.maxQueueDepth]; excess requests or requests
-/// that time out in the queue raise [BulkheadRejectedException].
+/// ## When to use this vs `BulkheadIsolationHandler`
+///
+/// Use `BulkheadHandler` for simple concurrency limiting with FIFO ordering.
+/// Use `BulkheadIsolationHandler` when you need:
+/// - Observability metrics (queued count, rejected count)
+/// - Zero-polling Completer-based semaphore (slightly lower CPU overhead)
+/// - Per-semaphore isolation for named resource pools
+///
+/// `BulkheadHandler` uses an internal `BulkheadSemaphore` to cap the number
+/// of parallel requests. Requests beyond `BulkheadPolicy.maxConcurrency` are
+/// queued up to `BulkheadPolicy.maxQueueDepth`; excess requests or requests
+/// that time out in the queue raise `BulkheadRejectedException`.
 ///
 /// ### Example
 /// ```dart

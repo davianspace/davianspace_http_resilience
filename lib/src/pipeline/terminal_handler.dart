@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import '../core/http_context.dart';
 import '../core/http_request.dart';
 import '../core/http_response.dart';
+import '../exceptions/http_resilience_exception.dart';
 import 'http_handler.dart';
 
 /// The innermost [HttpHandler] in every pipeline.
@@ -86,10 +87,21 @@ final class TerminalHandler extends HttpHandler {
       if (streaming) {
         // Return immediately after receiving headers / first byte.
         stopwatch.stop();
+        // Wrap the raw stream to convert http.ClientException into
+        // HttpResilienceException for uniform error handling (FIX-06).
         return HttpResponse.streaming(
           statusCode: streamed.statusCode,
           headers: Map<String, String>.from(streamed.headers),
-          bodyStream: streamed.stream,
+          bodyStream: streamed.stream.handleError(
+            (Object error, StackTrace stackTrace) {
+              throw HttpResilienceException(
+                'Streaming body error',
+                cause: error,
+                stackTrace: stackTrace,
+              );
+            },
+            test: (error) => error is http.ClientException,
+          ),
           duration: stopwatch.elapsed,
         );
       }

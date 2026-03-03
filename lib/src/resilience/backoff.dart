@@ -125,8 +125,16 @@ final class ExponentialBackoff implements RetryBackoff {
 
   @override
   Duration delayFor(int attempt) {
+    // Guard: if the exponent would overflow double precision, jump to
+    // maxDelay directly (FIX-10).
+    if (attempt - 1 > 52) return _applyJitter(maxDelay.inMilliseconds);
+
     final expMs = (base.inMilliseconds * math.pow(2, attempt - 1)).round();
     final cappedMs = expMs.clamp(0, maxDelay.inMilliseconds);
+    return _applyJitter(cappedMs);
+  }
+
+  Duration _applyJitter(int cappedMs) {
     if (!useJitter) return Duration(milliseconds: cappedMs);
     // Full-jitter: uniformly pick from [0, cappedDelay)
     final jitterMs =

@@ -260,9 +260,12 @@ final class CircuitBreakerState {
   /// completes (and the circuit re-opens or closes).
   bool _halfOpenSlotTaken = false;
 
-  // Sliding-window buffer ────────────────────────────────────────────────────
+  // Sliding-window ring buffer ─────────────────────────────────────────────
   // Only populated when policy.windowMode == slidingWindow.
-  final List<bool> _window = []; // true = success, false = failure
+  // O(1) eviction ring buffer (FIX-09).
+  late final List<bool?> _ring = List<bool?>.filled(policy.windowSize, null);
+  int _ringHead = 0;
+  int _ringCount = 0;
   int _windowFailures = 0;
 
   /// Current state of the circuit.
@@ -342,12 +345,23 @@ final class CircuitBreakerState {
   }
 
   void _pushWindow(bool success) {
-    if (_window.length >= policy.windowSize) {
-      final evicted = _window.removeAt(0);
-      if (!evicted) _windowFailures--;
+    // Ring buffer: O(1) eviction (FIX-09).
+    if (_ringCount >= policy.windowSize) {
+      final evicted = _ring[_ringHead];
+      if (evicted == false) _windowFailures--;
+    } else {
+      _ringCount++;
     }
-    _window.add(success);
+    _ring[_ringHead] = success;
+    _ringHead = (_ringHead + 1) % policy.windowSize;
     if (!success) _windowFailures++;
+  }
+
+  void _resetWindow() {
+    _ring.fillRange(0, _ring.length, null);
+    _ringHead = 0;
+    _ringCount = 0;
+    _windowFailures = 0;
   }
 
   void _open() {
@@ -358,8 +372,7 @@ final class CircuitBreakerState {
     _failureCount = 0;
     _successCount = 0;
     _halfOpenSlotTaken = false;
-    _window.clear();
-    _windowFailures = 0;
+    _resetWindow();
     _lastTransitionAt = _openedAt;
     _fireStateChange(prev, CircuitState.open);
   }
@@ -373,8 +386,7 @@ final class CircuitBreakerState {
     _breakStopwatch?.stop();
     _breakStopwatch = null;
     _halfOpenSlotTaken = false;
-    _window.clear();
-    _windowFailures = 0;
+    _resetWindow();
     _lastTransitionAt = DateTime.now().toUtc();
     _fireStateChange(prev, CircuitState.closed);
   }
@@ -436,9 +448,16 @@ final class CircuitBreakerState {
   /// Earliest time at which the circuit will probe again.
   ///
   /// Returns `null` when the circuit is not open.
+  /// Returns the estimated wall-clock time at which the circuit will
+  /// transition to half-open, computed from the monotonic stopwatch to avoid
+  /// drift from NTP adjustments or clock skew (FIX-05).
   DateTime? get retryAfter {
     if (_state != CircuitState.open) return null;
-    return _openedAt?.add(policy.breakDuration);
+    final sw = _breakStopwatch;
+    if (sw == null) return null;
+    final remaining = policy.breakDuration - sw.elapsed;
+    if (remaining.isNegative) return DateTime.now().toUtc();
+    return DateTime.now().toUtc().add(remaining);
   }
 
   @override

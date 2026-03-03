@@ -20,6 +20,11 @@ import 'package:davianspace_logging/davianspace_logging.dart';
 ///  8. Circuit breaker health monitoring
 ///  9. Header-redacted security logging
 ///  10. Rate limiter integration (davianspace_http_ratelimit companion)
+///  11. Map body auto-encoding (JSON)
+///  12. Transport-agnostic policy engine
+///  13. Observability & event hub
+///  14. Error handling patterns
+///  15. Fallback with event hub integration
 ///
 /// Run with:
 ///   dart run example/example.dart
@@ -43,6 +48,11 @@ void main() async {
   _example8CircuitBreakerHealth();
   _example9HeaderRedaction();
   _example10RateLimiterIntegration();
+  await _example11MapBodyAutoEncoding();
+  _example12TransportAgnosticPolicies();
+  _example13ObservabilityEventHub();
+  await _example14ErrorHandling();
+  _example15FallbackWithEventHub();
   print('\nAll examples completed.');
 }
 
@@ -456,6 +466,267 @@ void _example10RateLimiterIntegration() {
       ' .withLogging() to gate outbound throughput.');
 
   baseClient.dispose();
+}
+
+// ─────────────────────────────────────────────────────────────
+// 11. Map body auto-encoding (JSON)
+// ─────────────────────────────────────────────────────────────
+
+/// Demonstrates the automatic JSON encoding of `Map<String, dynamic>` bodies.
+///
+/// In v1.0.4, `ResilientHttpClient` verb helpers (`post`, `put`, `patch`)
+/// detect `Map<String, dynamic>` and `Map<String, Object?>` bodies and
+/// automatically call `jsonEncode()` + set `Content-Type: application/json`.
+Future<void> _example11MapBodyAutoEncoding() async {
+  print('\n[Example 11] Map body auto-encoding (JSON)');
+
+  final client = HttpClientBuilder('auto-json')
+      .withBaseUri(Uri.parse('https://jsonplaceholder.typicode.com'))
+      .withLogging(logger: _logFactory.createLogger('davianspace.http'))
+      .withRetry(RetryPolicy.constant(maxRetries: 1))
+      .build();
+
+  try {
+    // Pass a Map directly — no jsonEncode() or Content-Type header needed!
+    final response = await client.post(
+      Uri.parse('/posts'),
+      body: {
+        'title': 'Auto-encoded post',
+        'body': 'This map was automatically JSON-encoded',
+        'userId': 1,
+      },
+    );
+
+    final json = response.ensureSuccess().bodyAsJsonMap;
+    print('  → Created post id: ${json?['id']}');
+    print('  → Status: ${response.statusCode}');
+
+    // String bodies still work as before
+    final stringResponse = await client.post(
+      Uri.parse('/posts'),
+      body: jsonEncode({'title': 'Manual encode', 'userId': 1}),
+      headers: {'Content-Type': 'application/json'},
+    );
+    print('  → String body status: ${stringResponse.statusCode}');
+  } on HttpStatusException catch (e) {
+    print('  ✗ HTTP error: $e');
+  } finally {
+    client.dispose();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 12. Transport-agnostic policy engine
+// ─────────────────────────────────────────────────────────────
+
+/// Demonstrates using resilience policies independent of HTTP.
+///
+/// `Policy.wrap` and `ResiliencePipelineBuilder` work with any async
+/// operation — database calls, gRPC, file I/O, etc.
+void _example12TransportAgnosticPolicies() {
+  print('\n[Example 12] Transport-agnostic policy engine');
+
+  // Build a composite policy from the Policy factory
+  final policy = Policy.wrap([
+    Policy.retry(maxRetries: 3),
+    Policy.timeout(const Duration(seconds: 5)),
+    Policy.bulkheadIsolation(maxConcurrentRequests: 15),
+  ]);
+
+  final policyWrap = policy as PolicyWrap;
+  print('  → Policy created: ${policy.runtimeType}');
+  print('  → Contains ${policyWrap.policies.length} nested policies');
+
+  for (final p in policyWrap.policies) {
+    print('    • ${p.runtimeType}');
+  }
+
+  // Also available via the fluent builder
+  final pipeline = ResiliencePipelineBuilder()
+      .addPolicy(RetryResiliencePolicy(
+        maxRetries: 2,
+        backoff: const ConstantBackoff(Duration(milliseconds: 100)),
+        onRetry: (attempt, exception) {
+          print('  → Retry attempt $attempt: $exception');
+        },
+      ),)
+      .addPolicy(
+        const TimeoutResiliencePolicy(
+           Duration(seconds: 3),
+        ),
+      )
+      .build();
+
+  print('  → Fluent pipeline: ${pipeline.runtimeType}');
+
+  // Usage example (not executed — just demonstrates the API):
+  //   final result = await policy.execute(() => myDatabase.query('...'));
+  //   final rows  = await pipeline.execute(() => grpcClient.fetchAll());
+
+  policy.dispose();
+  pipeline.dispose();
+}
+
+// ─────────────────────────────────────────────────────────────
+// 13. Observability & event hub
+// ─────────────────────────────────────────────────────────────
+
+/// Demonstrates subscribing to resilience lifecycle events via the event hub.
+///
+/// The `ResilienceEventHub` provides both type-safe and catch-all subscriptions
+/// for retry, circuit breaker, timeout, fallback, and bulkhead events.
+void _example13ObservabilityEventHub() {
+  print('\n[Example 13] Observability & event hub');
+
+  final hub = ResilienceEventHub();
+
+  // Type-safe subscription for specific event types
+  hub.on<RetryEvent>((event) {
+    print('  → [RetryEvent] attempt=${event.attemptNumber}');
+  });
+
+  hub.on<CircuitOpenEvent>((event) {
+    print('  → [CircuitOpenEvent] circuit=${event.circuitName}');
+  });
+
+  hub.on<TimeoutEvent>((event) {
+    print('  → [TimeoutEvent] $event');
+  });
+
+  hub.on<FallbackEvent>((event) {
+    print('  → [FallbackEvent] $event');
+  });
+
+  hub.on<BulkheadRejectedEvent>((event) {
+    print('  → [BulkheadRejectedEvent] $event');
+  });
+
+  // Catch-all subscription for logging / diagnostics
+  hub.onAny((event) {
+    print('  → [ANY] ${event.runtimeType}');
+  });
+
+  // Emit synthetic events to show the subscriptions in action
+  hub.emit(RetryEvent(
+    attemptNumber: 1,
+    delay: const Duration(milliseconds: 200),
+    maxAttempts: 3,
+  ),);
+  hub.emit(CircuitOpenEvent(
+    circuitName: 'demo-circuit',
+    previousState: CircuitState.closed,
+    consecutiveFailures: 5,
+  ),);
+  hub.emit(FallbackEvent());
+
+  // Introspection
+  print('  → Active listeners: ${hub.listenerCount}');
+  print('  → Has listeners: ${hub.isNotEmpty}');
+
+  hub.clear();
+  print('  → Cleared all listeners');
+}
+
+// ─────────────────────────────────────────────────────────────
+// 14. Error handling patterns
+// ─────────────────────────────────────────────────────────────
+
+/// Demonstrates the structured exception hierarchy.
+///
+/// All resilience exceptions extend `HttpResilienceException`, enabling
+/// both fine-grained and catch-all error handling.
+Future<void> _example14ErrorHandling() async {
+  print('\n[Example 14] Error handling patterns');
+
+  final client = HttpClientBuilder('error-demo')
+      .withBaseUri(Uri.parse('https://jsonplaceholder.typicode.com'))
+      .withRetry(RetryPolicy.constant(
+        maxRetries: 1,
+      ),)
+      .withCircuitBreaker(const CircuitBreakerPolicy(
+        circuitName: 'error-demo',
+        failureThreshold: 10, // high threshold so we don't trip
+      ),)
+      .withTimeout(const TimeoutPolicy(timeout: Duration(seconds: 10)))
+      .build();
+
+  // Demonstrate HttpStatusException from ensureSuccess()
+  try {
+    final response = await client.get(Uri.parse('/posts/99999'));
+    response.ensureSuccess(); // throws if non-2xx
+    print('  → Success: ${response.bodyAsString}');
+  } on HttpStatusException catch (e) {
+    print('  → Caught HttpStatusException: status=${e.statusCode}');
+  }
+
+  // Demonstrate CancellationException
+  try {
+    final token = CancellationToken();
+    token.cancel('demo cancellation');
+    token.throwIfCancelled();
+  } on CancellationException catch (e) {
+    print('  → Caught CancellationException: reason=${e.reason}');
+  }
+
+  // Demonstrate exception hierarchy via try/catch:
+  // HttpResilienceException is itself an Exception
+  try {
+    throw const HttpResilienceException('hierarchy demo');
+  } on Exception catch (e) {
+    print('  → HttpResilienceException caught as Exception (${e.runtimeType})');
+  }
+
+  // HttpTimeoutException extends HttpResilienceException
+  try {
+    throw HttpTimeoutException(timeout: const Duration(seconds: 5));
+  } on HttpResilienceException catch (e) {
+    print('  → HttpTimeoutException caught as HttpResilienceException '
+        '(${e.runtimeType})');
+  }
+
+  client.dispose();
+}
+
+// ─────────────────────────────────────────────────────────────
+// 15. Fallback with event hub integration
+// ─────────────────────────────────────────────────────────────
+
+/// Demonstrates FallbackPolicy with `eventHub` for error reporting.
+///
+/// In v1.0.4, `FallbackPolicy` can accept an optional `ResilienceEventHub`.
+/// If the user's fallback callback throws, the error is caught and emitted
+/// as a `FallbackCallbackErrorEvent` instead of being silently swallowed.
+void _example15FallbackWithEventHub() {
+  print('\n[Example 15] Fallback with event hub integration');
+
+  final hub = ResilienceEventHub();
+
+  // Listen for fallback callback errors
+  hub.on<FallbackCallbackErrorEvent>((event) {
+    print('  → [FallbackCallbackErrorEvent]');
+    print('    original error : ${event.originalError}');
+    print('    callback error : ${event.callbackError}');
+  });
+
+  // Build a fallback policy that reports errors to the event hub
+  final fallback = FallbackPolicy(
+    eventHub: hub,
+    fallbackAction: (context, error, stackTrace) async => HttpResponse(
+      statusCode: 200,
+      body: utf8.encode('{"cached": true, "source": "fallback"}'),
+    ),
+    shouldHandle: (response, exception, context) {
+      if (exception != null) return true;
+      return response != null &&
+          [500, 502, 503, 504].contains(response.statusCode);
+    },
+  );
+
+  print('  → FallbackPolicy created with eventHub');
+  print('  → shouldHandle 503: ${fallback.shouldHandle!(HttpResponse(statusCode: 503), null, HttpContext(request: HttpRequest(method: HttpMethod.get, uri: Uri.parse("https://example.com"))))}');
+  print('  → shouldHandle 200: ${fallback.shouldHandle!(HttpResponse(statusCode: 200), null, HttpContext(request: HttpRequest(method: HttpMethod.get, uri: Uri.parse("https://example.com"))))}');
+
+  hub.clear();
 }
 
 // ─────────────────────────────────────────────────────────────

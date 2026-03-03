@@ -11,6 +11,19 @@ import '../policies/timeout_policy.dart';
 /// When the deadline is exceeded the inner handler's future is abandoned and
 /// an [HttpTimeoutException] is thrown.
 ///
+/// ## Important: abandoned in-flight requests
+///
+/// When a timeout fires, [TimeoutHandler] stops waiting for the response
+/// but **does NOT cancel** the underlying HTTP request. The in-flight
+/// call continues to completion in the background (consuming network
+/// resources and server capacity). This is a Dart platform limitation:
+/// `Future.timeout()` cannot cancel the underlying I/O.
+///
+/// If you need true request cancellation, consider:
+/// 1. Using `CancellationToken` in combination with a cancellation-aware
+///    HTTP client adapter.
+/// 2. Setting socket-level timeouts on the underlying `http.Client`.
+///
 /// ### Example
 /// ```dart
 /// final handler = TimeoutHandler(

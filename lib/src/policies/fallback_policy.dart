@@ -1,5 +1,6 @@
 import '../core/http_context.dart';
 import '../core/http_response.dart';
+import '../observability/resilience_event_hub.dart';
 import '../resilience/outcome_classification.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -129,6 +130,7 @@ final class FallbackPolicy {
     this.shouldHandle,
     this.classifier,
     this.onFallback,
+    this.eventHub,
   });
 
   /// The action that produces the fallback [HttpResponse].
@@ -150,6 +152,10 @@ final class FallbackPolicy {
   ///
   /// Use for logging, metrics, or alerting.  Must not throw.
   final FallbackHttpCallback? onFallback;
+
+  /// Optional [ResilienceEventHub] to receive fallback lifecycle events
+  /// including `FallbackCallbackErrorEvent` when [onFallback] throws (FIX-07).
+  final ResilienceEventHub? eventHub;
 
   @override
   String toString() {

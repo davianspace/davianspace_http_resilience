@@ -28,10 +28,18 @@ import 'resilient_http_client.dart';
 // HttpClientBuilder
 // ============================================================================
 
-/// Fluent builder for constructing a [ResilientHttpClient] with an ordered
-/// middleware pipeline.
+/// A **mutable** builder for constructing a [ResilientHttpClient] with an
+/// ordered middleware pipeline.
 ///
-/// Obtain an instance via [HttpClientFactory.addClient] (preferred) or
+/// ## When to use this vs `FluentHttpClientBuilder`
+///
+/// Use `HttpClientBuilder` when you want a straightforward imperative
+/// builder pattern (call `with*()` methods, then `build()`).
+/// Use `FluentHttpClientBuilder` when you prefer an **immutable** builder
+/// that returns new instances on each method call (functional style,
+/// safe for sharing partially-configured builders across scopes).
+///
+/// Obtain an instance via `HttpClientFactory.addClient` (preferred) or
 /// construct one directly for lightweight use without a factory.
 ///
 /// ### Recommended handler order (outermost  innermost)

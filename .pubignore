@@ -32,3 +32,5 @@ Thumbs.db
 # Logs
 *.log
 *.tmp
+
+FIX_PROMPT.md

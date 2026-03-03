@@ -408,3 +408,41 @@ final class HedgingOutcomeEvent extends ResilienceEvent {
       'totalAttempts=$totalAttempts, '
       'source=$source)';
 }
+
+// ============================================================================
+// FallbackCallbackErrorEvent (FIX-07)
+// ============================================================================
+
+/// Emitted by `FallbackHandler` when the `FallbackPolicy.onFallback` callback
+/// throws an exception. The error is forwarded here for observability instead
+/// of being silently swallowed.
+///
+/// ```dart
+/// hub.on<FallbackCallbackErrorEvent>((e) {
+///   log.severe('onFallback callback error: ${e.callbackError}',
+///       e.callbackError, e.callbackStackTrace);
+/// });
+/// ```
+final class FallbackCallbackErrorEvent extends ResilienceEvent {
+  /// Creates a [FallbackCallbackErrorEvent].
+  FallbackCallbackErrorEvent({
+    required this.originalError,
+    required this.callbackError,
+    required this.callbackStackTrace,
+    super.source,
+  });
+
+  /// The original error that triggered the fallback, if any.
+  final Object? originalError;
+
+  /// The error thrown by the `onFallback` callback itself.
+  final Object callbackError;
+
+  /// Stack trace of [callbackError].
+  final StackTrace callbackStackTrace;
+
+  @override
+  String toString() => 'FallbackCallbackErrorEvent('
+      'callbackError=${callbackError.runtimeType}, '
+      'source=$source)';
+}

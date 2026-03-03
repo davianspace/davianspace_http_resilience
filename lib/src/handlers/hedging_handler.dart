@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../core/cancellation_token.dart';
 import '../core/http_context.dart';
 import '../core/http_response.dart';
 import '../exceptions/hedging_exception.dart';
@@ -86,6 +87,19 @@ final class HedgingHandler extends DelegatingHandler {
     Object? lastError; // last exception from a failed attempt
     StackTrace? lastStackTrace;
 
+    // Per-attempt cancellation tokens so losing attempts can be cancelled
+    // when a winner is found (FIX-01).
+    final attemptTokens = <CancellationToken>[];
+
+    // Propagate outer cancellation to all per-attempt tokens.
+    unawaited(context.cancellationToken.onCancelled.then((_) {
+      for (final t in attemptTokens) {
+        if (!t.isCancelled) {
+          t.cancel(context.cancellationToken.reason);
+        }
+      }
+    }, onError: (_) {},),);
+
     // -------------------------------------------------------------------------
     // tryResolve — called from every completion path.
     //
@@ -117,17 +131,19 @@ final class HedgingHandler extends DelegatingHandler {
     // -------------------------------------------------------------------------
     // fireAttempt — launches attempt [attemptNumber] (1-based) concurrently.
     //
-    // Each attempt beyond the first gets a fresh HttpContext so that mutable
-    // state (retryCount, properties, stopwatch) does not bleed between siblings.
-    // All contexts share the same cancellationToken so that an external cancel
-    // propagates to all in-flight requests.
+    // Each attempt gets its own CancellationToken so losing attempts can be
+    // cancelled when a winner is found. The first attempt reuses the caller's
+    // context directly but still gets a per-attempt token for cancellation.
     // -------------------------------------------------------------------------
     void fireAttempt(int attemptNumber) {
+      final attemptToken = CancellationToken();
+      attemptTokens.add(attemptToken);
+
       final hedgeCtx = attemptNumber == 1
           ? context
           : HttpContext(
               request: context.request,
-              cancellationToken: context.cancellationToken,
+              cancellationToken: attemptToken,
               properties: Map<String, Object?>.of(context.properties),
             );
 
@@ -146,14 +162,31 @@ final class HedgingHandler extends DelegatingHandler {
                 source: 'HedgingHandler',
               ),
             );
+
+            // Cancel all OTHER in-flight attempts (FIX-01).
+            for (var i = 0; i < attemptTokens.length; i++) {
+              if (i != attemptNumber - 1 && !attemptTokens[i].isCancelled) {
+                attemptTokens[i].cancel('Hedging winner found');
+              }
+            }
+
+            // Drain any previously stored non-winning streaming response
+            // to release TCP connections (FIX-02).
+            if (bestNonWinner != null) _drainIfStreaming(bestNonWinner!);
+
             completer.complete(response);
           } else {
-            // Non-winning response — keep as fallback.
-            bestNonWinner ??= response;
+            if (completer.isCompleted) {
+              // Winner already selected — drain this abandoned response (FIX-02).
+              _drainIfStreaming(response);
+            } else {
+              // Drain previous non-winner before replacing (FIX-02).
+              if (bestNonWinner != null) _drainIfStreaming(bestNonWinner!);
+              bestNonWinner = response;
+            }
             tryResolve();
           }
         },
-        // ignore: avoid_types_on_closure_parameters
         onError: (Object err, StackTrace st) {
           doneCount++;
           lastError = err;
@@ -219,5 +252,13 @@ final class HedgingHandler extends DelegatingHandler {
       return !predicate(response, ctx);
     }
     return response.isSuccess;
+  }
+
+  /// Drains the body stream of a streaming response to release the
+  /// underlying TCP connection (FIX-02).
+  static void _drainIfStreaming(HttpResponse response) {
+    if (response.isStreaming) {
+      response.bodyStream.drain<void>().catchError((_) {});
+    }
   }
 }

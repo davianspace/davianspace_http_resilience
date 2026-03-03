@@ -1,5 +1,6 @@
 import '../core/http_context.dart';
 import '../core/http_response.dart';
+import '../observability/resilience_event.dart';
 import '../pipeline/delegating_handler.dart';
 import '../policies/fallback_policy.dart';
 
@@ -85,8 +86,8 @@ final class FallbackHandler extends DelegatingHandler {
     }
   }
 
-  /// Safely invokes [FallbackPolicy.onFallback], swallowing errors so that a
-  /// misbehaving callback cannot prevent the fallback action from executing.
+  /// Safely invokes [FallbackPolicy.onFallback], forwarding errors to the
+  /// event hub when available so they are observable (FIX-07).
   void _notifyOnFallback(
     HttpContext context,
     Object? error,
@@ -94,9 +95,17 @@ final class FallbackHandler extends DelegatingHandler {
   ) {
     try {
       _policy.onFallback?.call(context, error, stackTrace);
-    } on Object catch (_) {
-      // Intentionally swallowed — onFallback is observational and must not
-      // prevent the fallback action from executing.
+    } on Object catch (callbackError, callbackStack) {
+      // Forward to event hub so the error is observable, but don't let it
+      // block the fallback action.
+      _policy.eventHub?.emit(
+        FallbackCallbackErrorEvent(
+          originalError: error,
+          callbackError: callbackError,
+          callbackStackTrace: callbackStack,
+          source: 'FallbackHandler',
+        ),
+      );
     }
   }
 

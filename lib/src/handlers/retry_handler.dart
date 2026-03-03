@@ -51,6 +51,8 @@ final class RetryHandler extends DelegatingHandler {
           return response;
         }
 
+        // Drain any previous streaming response before discarding it (FIX-03).
+        _drainIfStreaming(lastResponse);
         lastResponse = response;
         lastException = null;
       } catch (e) {
@@ -87,21 +89,73 @@ final class RetryHandler extends DelegatingHandler {
       }
     }
 
+    // Drain the final response before throwing (FIX-03).
+    _drainIfStreaming(lastResponse);
+
     throw RetryExhaustedException(
       attemptsMade: totalAttempts,
       cause: lastException,
     );
   }
 
+  /// Drains the body stream of a streaming response to free the TCP connection
+  /// (FIX-03).
+  static void _drainIfStreaming(HttpResponse? response) {
+    if (response != null && response.isStreaming) {
+      response.bodyStream.drain<void>().catchError((_) {});
+    }
+  }
+
   /// Parses a `Retry-After` header value into a [Duration].
   ///
-  /// Handles numeric seconds only (e.g. `"120"` → `Duration(seconds: 120)`).
-  /// Returns `null` for absent or non-numeric values (HTTP-date format is not
-  /// parsed to avoid a `dart:io` dependency).
+  /// Handles both numeric seconds (e.g. `"120"`) and RFC 9110 §10.2.3
+  /// IMF-fixdate HTTP-date format (e.g. `"Wed, 21 Oct 2025 07:28:00 GMT"`).
+  /// Returns `null` for absent or unparseable values.
   static Duration? _parseRetryAfter(String? headerValue) {
     if (headerValue == null) return null;
-    final seconds = int.tryParse(headerValue.trim());
+    final trimmed = headerValue.trim();
+
+    // 1. Try numeric seconds (most common).
+    final seconds = int.tryParse(trimmed);
     if (seconds != null && seconds > 0) return Duration(seconds: seconds);
+
+    // 2. Try HTTP-date format (RFC 9110 §10.2.3).
+    final date = _tryParseHttpDate(trimmed);
+    if (date != null) {
+      final delta = date.difference(DateTime.now().toUtc());
+      return delta.isNegative ? Duration.zero : delta;
+    }
+
     return null;
+  }
+
+  /// Parses an IMF-fixdate string (e.g. `"Sun, 06 Nov 1994 08:49:37 GMT"`).
+  /// Returns `null` if parsing fails.
+  static DateTime? _tryParseHttpDate(String value) {
+    try {
+      const months = {
+        'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4,
+        'May': 5, 'Jun': 6, 'Jul': 7, 'Aug': 8,
+        'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12,
+      };
+      final parts = value.split(' ');
+      if (parts.length != 6 || parts[5] != 'GMT') return null;
+      final day = int.parse(parts[1]);
+      final month = months[parts[2]];
+      if (month == null) return null;
+      final year = int.parse(parts[3]);
+      final timeParts = parts[4].split(':');
+      if (timeParts.length != 3) return null;
+      return DateTime.utc(
+        year,
+        month,
+        day,
+        int.parse(timeParts[0]),
+        int.parse(timeParts[1]),
+        int.parse(timeParts[2]),
+      );
+    } on Object catch (_) {
+      return null;
+    }
   }
 }

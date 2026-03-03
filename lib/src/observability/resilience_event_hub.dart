@@ -141,6 +141,10 @@ final class ResilienceEventHub {
   // Global listeners invoked for every event.
   final _anyListeners = <ResilienceEventListener<ResilienceEvent>>[];
 
+  // COW snapshot caches — invalidated on add/remove (FIX-08).
+  final _cachedTypedSnapshots = <Type, List<Function>>{};
+  List<ResilienceEventListener<ResilienceEvent>>? _cachedAnySnapshot;
+
   /// The total number of registered listeners (typed + global).
   int get listenerCount {
     var count = _anyListeners.length;
@@ -188,6 +192,7 @@ final class ResilienceEventHub {
     final list = _typedListeners.putIfAbsent(E, () => []);
     if (!list.contains(listener)) {
       list.add(listener);
+      _cachedTypedSnapshots.remove(E); // invalidate typed cache
       _checkMaxListeners();
     }
     return this;
@@ -203,6 +208,7 @@ final class ResilienceEventHub {
     final list = _typedListeners[E];
     if (list != null) {
       list.remove(listener);
+      _cachedTypedSnapshots.remove(E); // invalidate typed cache
       if (list.isEmpty) _typedListeners.remove(E);
     }
     return this;
@@ -231,6 +237,7 @@ final class ResilienceEventHub {
   ) {
     if (!_anyListeners.contains(listener)) {
       _anyListeners.add(listener);
+      _cachedAnySnapshot = null; // invalidate any cache
       _checkMaxListeners();
     }
     return this;
@@ -239,10 +246,9 @@ final class ResilienceEventHub {
   /// Removes a previously registered global [listener].
   ///
   /// A no-op if [listener] is not registered.
-  ResilienceEventHub offAny(
-    ResilienceEventListener<ResilienceEvent> listener,
-  ) {
+  ResilienceEventHub offAny(ResilienceEventListener<ResilienceEvent> listener,) {
     _anyListeners.remove(listener);
+    _cachedAnySnapshot = null; // invalidate any cache
     return this;
   }
 
@@ -263,6 +269,8 @@ final class ResilienceEventHub {
   void clear() {
     _typedListeners.clear();
     _anyListeners.clear();
+    _cachedTypedSnapshots.clear();
+    _cachedAnySnapshot = null;
   }
 
   // --------------------------------------------------------------------------
@@ -283,12 +291,16 @@ final class ResilienceEventHub {
     // Fast path: nothing to do.
     if (_typedListeners.isEmpty && _anyListeners.isEmpty) return;
 
-    // Snapshot both listener lists to guard against mutation during iteration.
+    // Snapshot listener lists to guard against mutation during iteration.
+    // Use cached snapshots that are invalidated on add/remove to reduce
+    // allocation pressure on hot paths (FIX-08).
     final typed = _typedListeners[event.runtimeType];
-    final typedSnapshot =
-        typed != null ? List<Function>.of(typed) : const <Function>[];
-    final anySnapshot =
-        List<ResilienceEventListener<ResilienceEvent>>.of(_anyListeners);
+    final typedSnapshot = typed != null
+        ? (_cachedTypedSnapshots[event.runtimeType] ??=
+            List<Function>.unmodifiable(typed))
+        : const <Function>[];
+    final anySnapshot = _cachedAnySnapshot ??=
+        List<ResilienceEventListener<ResilienceEvent>>.unmodifiable(_anyListeners,);
 
     if (typedSnapshot.isEmpty && anySnapshot.isEmpty) return;
 
@@ -313,8 +325,7 @@ final class ResilienceEventHub {
     void Function(Object, StackTrace)? onError,
   ) {
     try {
-      // ignore: avoid_dynamic_calls
-      final result = listener(event);
+      final result = Function.apply(listener, [event]);
       if (result is Future<void>) {
         if (onError != null) {
           result.catchError(
